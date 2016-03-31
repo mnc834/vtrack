@@ -5,4 +5,6 @@ PROJECT_VERSION = 0.0.1
 # Whitespace to be used when creating files from templates.
 SP = 2
 
+DEPS = cowboy
+
 include erlang.mk
