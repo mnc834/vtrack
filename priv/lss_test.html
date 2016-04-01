@@ -15,17 +15,27 @@
     <input type="text" id="coef" value="1,0">
 </p>
 <button onclick="send_request()">Calculate</button>
+</p>
 <div id="result"></div>
 
 <script>
-    function process_response(arr)
+    function process_response(response)
     {
-        var out = "";
-        var i;
-        for(i = 0; i < arr.length; i++) {
-            out += "{" + arr[i].x + "," + arr[i].y + '}' +'; ';
+
+        var status = response.status;
+        var outcome = "";
+        if ('ok' == status)
+        {
+            var i;
+            var coefs = response.coefficients;
+            var N = coefs.length
+            for (i = 0; i < N - 1; i++) {
+                outcome += coefs[i] + ', ';
+            }
+            outcome += coefs[N - 1];
+            outcome = 'Coefficients: [' + outcome + ']';
         }
-        document.getElementById("result").innerHTML = out;
+        document.getElementById("result").innerHTML = "STATUS: " + status + "</p>" + outcome;
     }
 
     function send_request()
@@ -51,8 +61,8 @@
         {
             if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
             {
-                var myArr = JSON.parse(xmlhttp.responseText);
-                process_response(myArr);
+                var response = JSON.parse(xmlhttp.responseText);
+                process_response(response);
             }
         };
 

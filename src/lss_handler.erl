@@ -21,17 +21,25 @@ handle(Req, State=#state{}) ->
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
   #{from := From, to := To, n_points := N, coefficients := Coefs} = Query,
 
+  Power = length(Coefs) - 1,
   X_delta = (To - From) / (N - 1),
   Points =
     [
       begin
         X = From + I * X_delta,
-        #{x => X, y => calc_polinomial_v(Coefs, X)}
+        {X, calc_polinomial_v(Coefs, X)}
       end || I <- lists:seq(0, N - 1)
     ],
-  Points_out = jsx:encode(Points),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Points_out, Req_1),
+  Body =
+    case lss:get_least_squares_solution(Points, Power) of
+      {ok, Polynomial} ->
+        #{status => ok, coefficients => Polynomial}
+    end,
+
+  Resp_body = jsx:encode(Body),
+
+  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
   {ok, Req_resp, State}.
 
 terminate(_Reason, _Req, _State) ->
