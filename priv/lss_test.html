@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<p>
+    <label for="from">From</label>
+    <input type="text" id="from" value="0">
+    <label for="to">To</label>
+    <input type="text" id="to" value="1">
+    <label for="n_points">number of points</label>
+    <input type="text" id="n_points" value="10">
+</p>
+<p>
+    <label for="coef">Coeffifients (comma separated, most significant first)</label>
+    <input type="text" id="coef" value="1,0">
+</p>
+<button onclick="send_request()">Calculate</button>
+<div id="result"></div>
+
+<script>
+    function process_response(arr)
+    {
+        var out = "";
+        var i;
+        for(i = 0; i < arr.length; i++) {
+            out += "{" + arr[i].x + "," + arr[i].y + '}' +'; ';
+        }
+        document.getElementById("result").innerHTML = out;
+    }
+
+    function send_request()
+    {
+        var from = document.getElementById("from").value;
+        var to = document.getElementById("to").value;
+        var n_points = document.getElementById("n_points").value;
+        var coef_str = document.getElementById("coef").value;
+
+        var coefs = coef_str.split(',');
+
+        var coefficients = [];
+        var i;
+        for (i = 0; i < coefs.length; i++)
+        {
+            coefficients[i] = parseFloat(coefs[i]);
+        }
+
+        var xmlhttp = new XMLHttpRequest();
+        var url = "lss";
+
+        xmlhttp.onreadystatechange = function()
+        {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
+            {
+                var myArr = JSON.parse(xmlhttp.responseText);
+                process_response(myArr);
+            }
+        };
+
+        var Query =
+        {
+            from: parseFloat(from),
+            to: parseFloat(to),
+            n_points: parseInt(n_points),
+            coefficients: coefficients
+        };
+
+        xmlhttp.open("GET", url + '?' + 'query=' + JSON.stringify(Query), true);
+        xmlhttp.send();
+    }
+</script>
+
+</body>
+</html>

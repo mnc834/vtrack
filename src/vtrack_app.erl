@@ -6,7 +6,13 @@
 
 start(_Type, _Args) ->
   Dispatch = cowboy_router:compile([
-    {'_', [{"/test", cowboy_static, {priv_file, vtrack, "test.html"}}]}
+    {'_',
+      [
+        {"/test", cowboy_static, {priv_file, vtrack, "test.html"}},
+        {"/lss_test", cowboy_static, {priv_file, vtrack, "lss_test.html"}},
+        {"/lss", lss_handler, []}
+      ]
+    }
   ]),
   cowboy:start_http(my_http_listener, 100, [{port, 8080}],
     [{env, [{dispatch, Dispatch}]}]

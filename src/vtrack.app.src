@@ -1,0 +1,14 @@
+{application, vtrack, [
+  {description, "framework for visualizing"},
+  {vsn, "0.1.0"},
+  {modules, []},
+  {registered, []},
+  {applications, [
+    kernel,
+    stdlib,
+    cowboy,
+    jsx
+  ]},
+  {mod, {vtrack_app, []}},
+  {env, []}
+]}.
