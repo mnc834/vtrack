@@ -8,9 +8,15 @@ start(_Type, _Args) ->
   Dispatch = cowboy_router:compile([
     {'_',
       [
+        %%static html pages
         {"/test", cowboy_static, {priv_file, vtrack, "test.html"}},
         {"/lss_test", cowboy_static, {priv_file, vtrack, "lss_test.html"}},
-        {"/lss", lss_handler, []}
+
+        %%polynomial coefficients calculator
+        {"/lss", lss_handler, []},
+
+        %%js files
+        {"/js/[...]", cowboy_static, {priv_dir, vtrack, "js/src"}}
       ]
     }
   ]),

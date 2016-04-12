@@ -1,48 +1,44 @@
 <!DOCTYPE html>
 <html>
+<head>
+    <title>least squares solution test</title>
+    <script type="text/javascript" src="/js/v_plane.js"></script>
+    <script type="text/javascript" src="/js/g_objects.js"></script>
+</head>
+
 <body>
 
 <p>
-    <label for="from">From</label>
-    <input type="text" id="from" value="0">
-    <label for="to">To</label>
-    <input type="text" id="to" value="1">
     <label for="n_points">number of points</label>
     <input type="text" id="n_points" value="10">
 </p>
 <p>
-    <label for="coef">Coeffifients (comma separated, most significant first)</label>
+    <label for="coef">Coefficients (comma separated, most significant first)</label>
     <input type="text" id="coef" value="1,0">
 </p>
 <button onclick="send_request()">Calculate</button>
-</p>
-<div id="result"></div>
+<p>
+<label for="result">STATUS: </label>
+<div id="result">--</div>
+
+<canvas id="Canvas" width="500" height="250" style="border:1px solid #d3d3d3;">
+    Your browser does not support the HTML5 canvas tag.</canvas>
 
 <script>
-    function process_response(response)
-    {
 
-        var status = response.status;
-        var outcome = "";
-        if ('ok' == status)
-        {
-            var i;
-            var coefs = response.coefficients;
-            var N = coefs.length
-            for (i = 0; i < N - 1; i++) {
-                outcome += coefs[i] + ', ';
-            }
-            outcome += coefs[N - 1];
-            outcome = 'Coefficients: [' + outcome + ']';
-        }
-        document.getElementById("result").innerHTML = "STATUS: " + status + "</p>" + outcome;
-    }
+    var canvas = document.getElementById("Canvas");
+    v_plane = new V_plane(canvas);
+
+    var clean_win_fun = function() {};
 
     function send_request()
     {
-        var from = document.getElementById("from").value;
-        var to = document.getElementById("to").value;
-        var n_points = document.getElementById("n_points").value;
+        clean_win_fun();
+
+        var w = v_plane.get_physical_window();
+
+        var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
+
         var coef_str = document.getElementById("coef").value;
 
         var coefs = coef_str.split(',');
@@ -53,6 +49,17 @@
         {
             coefficients[i] = parseFloat(coefs[i]);
         }
+
+        var ref_polynomial_id = v_plane.add_g_object(new Polynomial_g_object(coefficients, "#FF0000"));
+
+        clean_win_fun = function()
+        {
+            v_plane.remove_g_object(ref_polynomial_id);
+            v_plane.remove_g_object(rectangle_id)
+        };
+
+        var n_points = document.getElementById("n_points").value;
+
 
         var xmlhttp = new XMLHttpRequest();
         var url = "lss";
@@ -68,8 +75,8 @@
 
         var Query =
         {
-            from: parseFloat(from),
-            to: parseFloat(to),
+            from: parseFloat(w.left),
+            to: parseFloat(w.right),
             n_points: parseInt(n_points),
             coefficients: coefficients
         };
@@ -77,6 +84,39 @@
         xmlhttp.open("GET", url + '?' + 'query=' + JSON.stringify(Query), true);
         xmlhttp.send();
     }
+
+    function process_response(response)
+    {
+
+        var status = response.status;
+        var status_str;
+        if ('ok' == status)
+        {
+            var result_polynomial_id =
+                    v_plane.add_g_object(new Polynomial_g_object(response.coefficients, "#00FF00"));
+            clean_win_fun = (function(f_name)
+            {
+                return function() {
+                    f_name();
+                    v_plane.remove_g_object(result_polynomial_id)
+                }
+            })(clean_win_fun);
+            status_str = 'OK; Coefficients: [' + response.coefficients[0];
+            var i;
+            for (i = 1; i < response.coefficients.length; i++)
+            {
+                status_str += ",  " + response.coefficients[i];
+            }
+            status_str += ']'
+
+        }
+        else
+        {
+            status_str = 'ERROR; Reason: ' + response.reason;
+        }
+        document.getElementById("result").innerHTML = status_str;
+    }
+
 </script>
 
 </body>

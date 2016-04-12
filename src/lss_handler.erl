@@ -34,7 +34,9 @@ handle(Req, State=#state{}) ->
   Body =
     case lss:get_least_squares_solution(Points, Power) of
       {ok, Polynomial} ->
-        #{status => ok, coefficients => Polynomial}
+        #{status => ok, coefficients => Polynomial};
+      {error, Error} ->
+        #{status => error, reason => Error}
     end,
 
   Resp_body = jsx:encode(Body),
