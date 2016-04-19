@@ -11,12 +11,16 @@ start(_Type, _Args) ->
         %%static html pages
         {"/test", cowboy_static, {priv_file, vtrack, "test.html"}},
         {"/lss_test", cowboy_static, {priv_file, vtrack, "lss_test.html"}},
+        {"/sample_test", cowboy_static, {priv_file, vtrack, "sample_test.html"}},
+
+        %%js files
+        {"/js/[...]", cowboy_static, {priv_dir, vtrack, "js/src"}},
 
         %%polynomial coefficients calculator
         {"/lss", lss_handler, []},
 
-        %%js files
-        {"/js/[...]", cowboy_static, {priv_dir, vtrack, "js/src"}}
+        %%working with samples
+        {"/sample", sample_handler, []}
       ]
     }
   ]),

@@ -14,7 +14,7 @@
 </p>
 <p>
     <label for="coef">Coefficients (comma separated, most significant first)</label>
-    <input type="text" id="coef" value="1,0">
+    <input type="text" id="coef" value="0.001, -0.01, -0.1, 0.5, 0">
 </p>
 <button onclick="send_request()">Calculate</button>
 <p>
@@ -50,7 +50,7 @@
             coefficients[i] = parseFloat(coefs[i]);
         }
 
-        var ref_polynomial_id = v_plane.add_g_object(new Polynomial_g_object(coefficients, "#FF0000"));
+        var ref_polynomial_id = v_plane.add_g_object(new G_polynomial(coefficients, "#FF0000"));
 
         clean_win_fun = function()
         {
@@ -93,7 +93,7 @@
         if ('ok' == status)
         {
             var result_polynomial_id =
-                    v_plane.add_g_object(new Polynomial_g_object(response.coefficients, "#00FF00"));
+                    v_plane.add_g_object(new G_polynomial(response.coefficients, "#00FF00"));
             clean_win_fun = (function(f_name)
             {
                 return function() {
