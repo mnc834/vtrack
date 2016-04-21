@@ -17,8 +17,16 @@ handle(Req, State=#state{}) ->
       {<<"content-type">>, <<"text/plain">>}
     ],
 
-  {ok, Data} = sample_track:get_js_encoded_data(),
-  Resp_body = Data,
+  Resp =
+    case sample_track:read_next_chunk() of
+      {ok, Data} ->
+        #{status => ok, ticks => Data};
+      eof ->
+        #{status => eof};
+      {error, Reason} ->
+        #{status => error, error => Reason}
+    end,
+  Resp_body = jsx:encode(Resp),
 
   {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req),
   {ok, Req_resp, State}.

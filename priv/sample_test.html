@@ -8,12 +8,12 @@
 </head>
 <body>
 
-<canvas id="Canvas" width="500" height="250" style="border:1px solid #d3d3d3;">
+<canvas id="Canvas" width="800" height="250" style="border:1px solid #d3d3d3;">
     Your browser does not support the HTML5 canvas tag.</canvas>
 
 <script>
     var canvas = document.getElementById("Canvas");
-    v_plane = new V_plane(canvas);
+    var v_plane = new V_plane(canvas);
 
     var xmlhttp = new XMLHttpRequest();
     var url = "sample";
@@ -27,59 +27,90 @@
         }
     };
 
-    xmlhttp.open("GET", url, true);
-    xmlhttp.send();
+
+//    var add_ticks = add_first_ticks;
 
     function process_response(response)
     {
-        var n = response.length;
-        var v = new Array(n);
-        var i;
-        var t0 = response[0].time;
-        var p0 = response[0].price;
-        for (i = 0; i < response.length; i++)
+        switch (response.status)
         {
-            v[i] = {x: response[i].time - t0, y: response[i].price - p0};
+            case 'ok':
+                var ticks = response.ticks;
+                add_ticks(ticks);
+                break;
+            case 'eof':
+                console.log("End of file");
+                break;
         }
-        v_plane.add_g_object(new G_sample_list(v, "#FF0000"));
-
-        set_scale_processor(v_plane, v);
     }
 
-    function set_scale_processor(v_plane, v)
+    function send_ajax_request()
     {
-        var max = v[0].y;
-        var min = max;
-        var i;
-        for (i = 0; i < v.length; i++)
+        xmlhttp.open("GET", url, true);
+        xmlhttp.send();
+    }
+
+    var add_ticks = function(ticks)
+    {
+        var t0 = ticks[0].time;
+        var p0 = ticks[0].price;
+
+        var max;
+        var min;
+        var delta;
+
+        var convert_ticks = function(ticks)
         {
-            var p = v[i].y;
-            if (min > p)
+            var n = ticks.length;
+            var v = new Array(n);
+            var i;
+            for (i = 0; i < n; i++)
             {
-                min = p
+                v[i] = {x: ticks[i].time - t0, y: ticks[i].price - p0};
             }
-            if (max < p)
-            {
-                max = p
-            }
+            return v;
+        };
+
+        function process_point(v)
+        {
+            update_delta(v);
+            var sample_list = new G_sample_list(v, "#FF0000");
+            v_plane.add_g_object(sample_list);
+            send_ajax_request();
         }
 
-        var delta = max - min;
-        console.log("min: " + min + "; max: " + max);
+        function update_delta(v)
+        {
+            var i;
+            for (i = 0; i < v.length; i++)
+            {
+                var p = v[i].y;
+                if (min > p)
+                {
+                    min = p
+                }
+                if (max < p)
+                {
+                    max = p
+                }
+            }
+
+            delta = max - min;
+            console.log("min: " + min + "; max: " + max);
+        }
 
         v_plane.set_scale_processor(function(cur_scale, d_scale)
         {
             var w = v_plane.get_physical_window();
             var dy = w.top - w.bottom;
             var ratio = 1 + d_scale;
-            console.log("Delta: " + delta + "; dy: " + dy + "; d_scale:" + d_scale);
-            if ((dy < (delta * 3)) && (d_scale < 0))
+            if ((dy < (delta * 1.5)) && (d_scale < 0))
             {
                 cur_scale.y *= ratio;
             }
             else
             {
-                if ((dy > (delta / 3)) && (d_scale > 0))
+                if ((dy > (delta / 1.5)) && (d_scale > 0))
                 {
                     cur_scale.y *= ratio;
                 }
@@ -87,8 +118,22 @@
             cur_scale.x *= ratio;
 
             return cur_scale
-        })
-    }
+        });
+
+        var v = convert_ticks(ticks);
+        max = v[0].y;
+        min = max;
+        process_point(v);
+
+        add_ticks = function(ticks)
+        {
+            var v = convert_ticks(ticks);
+            process_point(v);
+        };
+    };
+
+
+    send_ajax_request();
 
 </script>
 
