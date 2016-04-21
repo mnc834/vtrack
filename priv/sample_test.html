@@ -12,11 +12,12 @@
     Your browser does not support the HTML5 canvas tag.</canvas>
 
 <script>
+    var url = "sample";
+
     var canvas = document.getElementById("Canvas");
     var v_plane = new V_plane(canvas);
 
     var xmlhttp = new XMLHttpRequest();
-    var url = "sample";
 
     xmlhttp.onreadystatechange = function()
     {
@@ -27,8 +28,6 @@
         }
     };
 
-
-//    var add_ticks = add_first_ticks;
 
     function process_response(response)
     {
@@ -44,16 +43,29 @@
         }
     }
 
-    function send_ajax_request()
+    function send_next_chunk_request()
     {
-        xmlhttp.open("GET", url, true);
+        xmlhttp.open("GET", url + "/next_chunk", true);
         xmlhttp.send();
     }
+
+    var correct_time;
+    var correct_val;
 
     var add_ticks = function(ticks)
     {
         var t0 = ticks[0].time;
         var p0 = ticks[0].price;
+
+        correct_time = function(time)
+        {
+            return time + t0
+        };
+
+        correct_val = function(val)
+        {
+            return val + p0
+        };
 
         var max;
         var min;
@@ -76,7 +88,7 @@
             update_delta(v);
             var sample_list = new G_sample_list(v, "#FF0000");
             v_plane.add_g_object(sample_list);
-            send_ajax_request();
+            send_next_chunk_request();
         }
 
         function update_delta(v)
@@ -132,8 +144,55 @@
         };
     };
 
+    var clean_win_fun = function() {};
 
-    send_ajax_request();
+    v_plane.add_on_click_listener(
+            function (p)
+            {
+                clean_win_fun();
+
+                var from = p.x - 3 * 24 * 60 * 60 * 1000;
+                var to = p.x;
+
+                var xmlhttp = new XMLHttpRequest();
+                xmlhttp.onreadystatechange = function()
+                {
+                    if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
+                    {
+                        var response = JSON.parse(xmlhttp.responseText);
+                        switch (response.status)
+                        {
+                            case 'ok':
+                                var w = v_plane.get_physical_window();
+                                w.left = from;
+                                w.right = to;
+                                var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
+                                var polynomial_id =
+                                        v_plane.add_g_object(new G_polynomial(response.coefficients, "#00FF00"));
+                                clean_win_fun = function()
+                                {
+                                    v_plane.remove_g_object(rectangle_id);
+                                    v_plane.remove_g_object(polynomial_id);
+                                };
+                                break;
+                        }
+                    }
+                };
+                var params =
+                {
+                    from: correct_time(from),
+                    to: correct_time(to),
+                    x_shift: -1 * correct_time(0),
+                    y_shift: -1 * correct_val(0),
+                    power: 2
+                };
+                xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(params), true);
+                xmlhttp.send();
+            }
+    );
+
+
+    send_next_chunk_request();
 
 </script>
 

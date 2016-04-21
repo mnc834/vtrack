@@ -26,7 +26,8 @@
 %% API
 -export([start_link/1,
   get_data/0,
-  read_next_chunk/0]).
+  read_next_chunk/0,
+  slice_ticks/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -82,6 +83,11 @@ get_data() ->
 %% returns error if read failes
 read_next_chunk() ->
   gen_server:call(?SERVER, read_next_chunk).
+
+-spec slice_ticks(From :: integer(), To :: integer()) -> [tick()].
+%% @doc extracts ticks which have time within [From, To]
+slice_ticks(From, To) ->
+  gen_server:call(?SERVER, {slice_ticks, From, To}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -161,7 +167,17 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, ticks = Deals}
       #file_data{file = Fd} = File_data,
       file:close(Fd),
       {reply, Result, State#state{file_data = File_data#file_data{file = undefined}}}
-  end.
+  end;
+handle_call({slice_ticks, From, To}, _From, #state{ticks = Deals} = State) ->
+  From_pred = gen_before_t_predicate(From),
+  To_pred = gen_before_t_predicate(To),
+  L_1 = lists:dropwhile(From_pred, Deals),
+  L = lists:takewhile(To_pred, L_1),
+  {reply, L, State}.
+
+
+
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -340,10 +356,14 @@ tick_recs_to_ticks(Deal_recs) ->
     end,
   lists:map(Map_fun, Deal_recs).
 
-gen_pred(T_start) ->
-  T_end = T_start + ?MEAN_SPAN,
-  fun(#tick_rec{time = T}) when T < T_end ->
+-spec gen_before_t_predicate(T :: integer()) -> fun((#tick_rec{} | tick()) -> boolean()).
+%% @doc generates a function that serves as a predicate the returns true if given tick's time
+%%      is less then T and false otherwise
+gen_before_t_predicate(T_limit) ->
+  fun(#tick_rec{time = T}) when T < T_limit ->
     true;
+    (#{time := T}) when T < T_limit ->
+      true;
     (_) ->
       false
   end.
@@ -356,7 +376,7 @@ add_tick(#tick_rec{price = P, amount = A}, {#tick_rec{price = P_s, amount = A_s}
 decimate_ticks([]) ->
   [];
 decimate_ticks([#tick_rec{time = T_start} | _] = Ticks) ->
-  Pred = gen_pred(T_start),
+  Pred = gen_before_t_predicate(T_start + ?MEAN_SPAN),
   {L, Rest} = lists:splitwith(Pred, Ticks),
   {#tick_rec{price = P_s, amount = A_s}, N} =
     lists:foldl(fun add_tick/2, {#tick_rec{price = 0, amount = 0}, 0}, L),
