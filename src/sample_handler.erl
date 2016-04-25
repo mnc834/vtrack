@@ -41,17 +41,20 @@ handle(Req, State=#state{operation = indicators}) ->
 
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
-  #{from := From, to := To, power := Power, x_shift := X_shift, y_shift := Y_shift} = Query,
+  #{x_shift := X_shift, y_shift := Y_shift, polynomials := Polynomials} = Query,
 
-  L = sample_track:slice_ticks(From, To),
-  V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
-  Resp =
-    case lss:get_least_squares_solution(V, Power) of
-      {ok, Coefs} ->
-        #{status => ok, coefficients => Coefs};
-      {error, Reason} ->
-        #{status => error, error => Reason}
+  Map_fun =
+    fun(#{left := From, right := To, power := Power}) ->
+      L = sample_track:slice_ticks(From, To),
+      V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
+      case lss:get_least_squares_solution(V, Power) of
+        {ok, Coefs} ->
+          #{status => ok, coefficients => Coefs};
+        {error, Reason} ->
+          #{status => error, error => Reason}
+      end
     end,
+  Resp = lists:map(Map_fun, Polynomials),
   Resp_body = jsx:encode(Resp),
 
   {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),

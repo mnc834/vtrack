@@ -5,11 +5,39 @@
     <title>sample test</title>
     <script type="text/javascript" src="/js/v_plane.js"></script>
     <script type="text/javascript" src="/js/g_objects.js"></script>
+    <style>
+        #canvas {
+            float:left;
+            top: 10px;
+            left: 10px;
+        }
+        #panel {
+            position: absolute;
+            top: 10px;
+            left: 775px;
+        }
+    </style>
 </head>
 <body>
 
-<canvas id="Canvas" width="800" height="250" style="border:1px solid #d3d3d3;">
+<canvas id="Canvas" width="750" height="250" style="border:1px solid #d3d3d3;">
     Your browser does not support the HTML5 canvas tag.</canvas>
+
+<div id="panel">
+    <div> mean </div>
+    <label for="mean_span">span (sec)</label>
+    <input type="text" id="mean_span" value="3 * 24*60*60">
+    <label for="mean_power">power</label>
+    <input type="text" id="mean_power" value="2">
+
+    <p>
+
+    <div> short </div>
+    <label for="short_span">span (sec)</label>
+    <input type="text" id="short_span" value="1 *60 * 60">
+    <label for="short_power">power</label>
+    <input type="text" id="short_power" value="2">
+</div>
 
 <script>
     var url = "sample";
@@ -108,7 +136,6 @@
             }
 
             delta = max - min;
-            console.log("min: " + min + "; max: " + max);
         }
 
         v_plane.set_scale_processor(function(cur_scale, d_scale)
@@ -122,7 +149,7 @@
             }
             else
             {
-                if ((dy > (delta / 1.5)) && (d_scale > 0))
+                if ((dy > (delta)) && (d_scale > 0))
                 {
                     cur_scale.y *= ratio;
                 }
@@ -150,41 +177,81 @@
             function (p)
             {
                 clean_win_fun();
+                clean_win_fun = function() {};
 
-                var from = p.x - 3 * 24 * 60 * 60 * 1000;
+                var mean_span = eval(document.getElementById("mean_span").value);
+                var mean_power = eval(document.getElementById("mean_power").value);
+
+                var short_span = eval(document.getElementById("short_span").value);
+                var short_power = eval(document.getElementById("short_power").value);
+
+                var mean_from = p.x - mean_span * 1000;
+                var short_from = p.x - short_span * 1000;
                 var to = p.x;
 
+                var mean_data =
+                {
+                    left: mean_from,
+                    right: to,
+                    power: mean_power,
+                    colour: "#00FF00"
+                };
+
+                var short_data =
+                {
+                    left: short_from,
+                    right: to,
+                    power: short_power,
+                    colour: "#0000FF"
+                };
+                var polynomials =
+                        [
+                            mean_data,
+                            short_data
+                        ];
                 var xmlhttp = new XMLHttpRequest();
                 xmlhttp.onreadystatechange = function()
                 {
                     if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
                     {
                         var response = JSON.parse(xmlhttp.responseText);
-                        switch (response.status)
+                        for (var i = 0; i < response.length; i++)
                         {
-                            case 'ok':
-                                var w = v_plane.get_physical_window();
-                                w.left = from;
-                                w.right = to;
-                                var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
-                                var polynomial_id =
-                                        v_plane.add_g_object(new G_polynomial(response.coefficients, "#00FF00"));
-                                clean_win_fun = function()
-                                {
-                                    v_plane.remove_g_object(rectangle_id);
-                                    v_plane.remove_g_object(polynomial_id);
-                                };
-                                break;
+                            switch (response[i].status)
+                            {
+                                case 'ok':
+                                    var polynomial = new G_polynomial(response[i].coefficients,
+                                            polynomials[i].colour, polynomials[i]);
+                                    var polynomial_id = v_plane.add_g_object(polynomial);
+                                    clean_win_fun = function (fun, id)
+                                    {
+                                        return function ()
+                                        {
+                                            fun();
+                                            v_plane.remove_g_object(id);
+                                        };
+                                    }(clean_win_fun, polynomial_id);
+                                    break;
+                            }
                         }
                     }
                 };
+                var polynomial_params = new Array(polynomials.length);
+                for (var i = 0; i < polynomials.length; i++)
+                {
+                    polynomial_params[i] = function(data)
+                    {
+                        var left = correct_time(data.left);
+                        var right = correct_time(data.right);
+                        var power = data.power;
+                        return {left: left, right: right, power: power};
+                    }(polynomials[i]);
+                }
                 var params =
                 {
-                    from: correct_time(from),
-                    to: correct_time(to),
                     x_shift: -1 * correct_time(0),
                     y_shift: -1 * correct_val(0),
-                    power: 2
+                    polynomials: polynomial_params
                 };
                 xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(params), true);
                 xmlhttp.send();
