@@ -27,12 +27,12 @@ handle(Req, State=#state{}) ->
     [
       begin
         X = From + I * X_delta,
-        {X, calc_polinomial_v(Coefs, X)}
+        {X, tapol_epol:calc_val(Coefs, X)}
       end || I <- lists:seq(0, N - 1)
     ],
 
   Body =
-    case lss:get_least_squares_solution(Points, Power) of
+    case tapol_lss:get_least_squares_solution(Points, Power) of
       {ok, Polynomial} ->
         #{status => ok, coefficients => Polynomial};
       {error, Error} ->
@@ -47,16 +47,3 @@ handle(Req, State=#state{}) ->
 terminate(_Reason, _Req, _State) ->
   ok.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Internal functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec calc_polinomial_v([float()], float()) -> float().
-%% @doc calculates a value of a polynomial in a given point,
-%%      polynomial coefficients are in order when the coefficients with
-%%      the greatest power comes forst
-calc_polinomial_v([H | T], X) ->
-  F =
-    fun(C, Acc) ->
-      Acc * X + C
-    end,
-  lists:foldl(F, H, T).

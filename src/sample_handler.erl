@@ -47,7 +47,7 @@ handle(Req, State=#state{operation = indicators}) ->
     fun(#{left := From, right := To, power := Power}) ->
       L = sample_track:slice_ticks(From, To),
       V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
-      case lss:get_least_squares_solution(V, Power) of
+      case tapol_lss:get_least_squares_solution(V, Power) of
         {ok, Coefs} ->
           #{status => ok, coefficients => Coefs};
         {error, Reason} ->

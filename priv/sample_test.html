@@ -189,6 +189,9 @@
                 var short_from = p.x - short_span * 1000;
                 var to = p.x;
 
+                var d = new Date(correct_time(p.x));
+                console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
+
                 var mean_data =
                 {
                     left: mean_from,
