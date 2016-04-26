@@ -37,6 +37,11 @@
     <input type="text" id="short_span" value="1 *60 * 60">
     <label for="short_power">power</label>
     <input type="text" id="short_power" value="2">
+
+    <p>
+        <button onclick="test_interval()">TEST_INTERVAL</button>
+    </p>
+
 </div>
 
 <script>
@@ -79,6 +84,20 @@
 
     var correct_time;
     var correct_val;
+    var convert_time;
+    var convert_val;
+
+    var convert_ticks = function(ticks)
+    {
+        var n = ticks.length;
+        var v = new Array(n);
+        var i;
+        for (i = 0; i < n; i++)
+        {
+            v[i] = {x: convert_time(ticks[i].time), y: convert_val(ticks[i].price)};
+        }
+        return v;
+    };
 
     var add_ticks = function(ticks)
     {
@@ -95,21 +114,19 @@
             return val + p0
         };
 
+        convert_time = function(time)
+        {
+            return time - t0
+        };
+
+        convert_val = function(val)
+        {
+            return val - p0
+        };
+
         var max;
         var min;
         var delta;
-
-        var convert_ticks = function(ticks)
-        {
-            var n = ticks.length;
-            var v = new Array(n);
-            var i;
-            for (i = 0; i < n; i++)
-            {
-                v[i] = {x: ticks[i].time - t0, y: ticks[i].price - p0};
-            }
-            return v;
-        };
 
         function process_point(v)
         {
@@ -171,22 +188,35 @@
         };
     };
 
-    var clean_win_fun = function() {};
+
+    function get_indicators_params()
+    {
+        var mean_span = eval(document.getElementById("mean_span").value) * 1000;
+        var mean_power = eval(document.getElementById("mean_power").value);
+
+        var short_span = eval(document.getElementById("short_span").value) * 1000;
+        var short_power = eval(document.getElementById("short_power").value);
+
+        return {
+            mean_span: mean_span,
+            mean_power: mean_power,
+            short_span: short_span,
+            short_power: short_power
+        }
+    }
+
+    var v_plane_on_click_clear_fun = function() {};
 
     v_plane.add_on_click_listener(
             function (p)
             {
-                clean_win_fun();
-                clean_win_fun = function() {};
+                v_plane_on_click_clear_fun();
+                v_plane_on_click_clear_fun = function() {};
 
-                var mean_span = eval(document.getElementById("mean_span").value);
-                var mean_power = eval(document.getElementById("mean_power").value);
+                var i_params = get_indicators_params();
 
-                var short_span = eval(document.getElementById("short_span").value);
-                var short_power = eval(document.getElementById("short_power").value);
-
-                var mean_from = p.x - mean_span * 1000;
-                var short_from = p.x - short_span * 1000;
+                var mean_from = p.x - i_params.mean_span;
+                var short_from = p.x - i_params.short_span;
                 var to = p.x;
 
                 var d = new Date(correct_time(p.x));
@@ -196,7 +226,7 @@
                 {
                     left: mean_from,
                     right: to,
-                    power: mean_power,
+                    power: i_params.mean_power,
                     colour: "#00FF00"
                 };
 
@@ -204,7 +234,7 @@
                 {
                     left: short_from,
                     right: to,
-                    power: short_power,
+                    power: i_params.short_power,
                     colour: "#0000FF"
                 };
                 var polynomials =
@@ -226,14 +256,14 @@
                                     var polynomial = new G_polynomial(response[i].coefficients,
                                             polynomials[i].colour, polynomials[i]);
                                     var polynomial_id = v_plane.add_g_object(polynomial);
-                                    clean_win_fun = function (fun, id)
+                                    v_plane_on_click_clear_fun = function (fun, id)
                                     {
                                         return function ()
                                         {
                                             fun();
                                             v_plane.remove_g_object(id);
                                         };
-                                    }(clean_win_fun, polynomial_id);
+                                    }(v_plane_on_click_clear_fun, polynomial_id);
                                     break;
                             }
                         }
@@ -250,16 +280,69 @@
                         return {left: left, right: right, power: power};
                     }(polynomials[i]);
                 }
-                var params =
+                var query =
                 {
                     x_shift: -1 * correct_time(0),
                     y_shift: -1 * correct_val(0),
                     polynomials: polynomial_params
                 };
-                xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(params), true);
+                xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(query), true);
                 xmlhttp.send();
             }
     );
+
+    var on_test_interval_clear_fun = function() {};
+
+    function test_interval()
+    {
+        on_test_interval_clear_fun();
+
+        var i_params = get_indicators_params();
+
+        var w = v_plane.get_physical_window();
+
+        var query =
+        {
+            x_shift: -1 * correct_time(0),
+            y_shift: -1 * correct_val(0),
+            left: correct_time(w.left),
+            right: correct_time(w.right),
+            mean_span: i_params.mean_span,
+            mean_power: i_params.mean_power,
+            short_span: i_params.short_span,
+            short_power: i_params.short_power
+        };
+
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function()
+        {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
+            {
+                var response = JSON.parse(xmlhttp.responseText);
+                switch (response.status)
+                {
+                    case 'ok':
+                        var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
+                        var short_v = convert_ticks(response.short_list);
+                        var long_v = convert_ticks(response.long_list);
+                        var short_id = v_plane.add_g_object(new G_sample_list(short_v, "#0000FF"));
+                        var long_id = v_plane.add_g_object(new G_sample_list(long_v, "#00FF00"));
+
+                        on_test_interval_clear_fun = function ()
+                        {
+                            v_plane.remove_g_object(rectangle_id);
+                            v_plane.remove_g_object(short_id);
+                            v_plane.remove_g_object(long_id);
+                        };
+
+                        break;
+                }
+            }
+        };
+
+        xmlhttp.open("GET", url + "/test_interval" + '?' + 'params=' + JSON.stringify(query), true);
+        xmlhttp.send();
+    }
 
 
     send_next_chunk_request();

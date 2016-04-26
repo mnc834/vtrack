@@ -21,7 +21,8 @@ start(_Type, _Args) ->
 
         %%working with samples
         {"/sample/next_chunk", sample_handler, [next_chunk]},
-        {"/sample/indicators", sample_handler, [indicators]}
+        {"/sample/indicators", sample_handler, [indicators]},
+        {"/sample/test_interval", sample_handler, [test_interval]}
       ]
     }
   ]),
