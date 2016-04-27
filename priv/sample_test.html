@@ -26,20 +26,25 @@
 <div id="panel">
     <div> mean </div>
     <label for="mean_span">span (sec)</label>
-    <input type="text" id="mean_span" value="3 * 24*60*60">
+    <input type="text" id="mean_span" value="3 * 24 * 60 * 60">
     <label for="mean_power">power</label>
     <input type="text" id="mean_power" value="2">
 
     <p>
 
-    <div> short </div>
+    <div> short</div>
     <label for="short_span">span (sec)</label>
-    <input type="text" id="short_span" value="1 *60 * 60">
+    <input type="text" id="short_span" value="30 * 60">
     <label for="short_power">power</label>
     <input type="text" id="short_power" value="2">
 
     <p>
-        <button onclick="test_interval()">TEST_INTERVAL</button>
+
+    <label for="absolute_diff">Absolute diff</label>
+    <input type="text" id="absolute_diff" value="100">
+
+    <p>
+        <button id = "test_interval" onclick="test_interval()">TEST_INTERVAL</button>
     </p>
 
 </div>
@@ -48,6 +53,7 @@
     var url = "sample";
 
     var canvas = document.getElementById("Canvas");
+    var test_interval_button = document.getElementById("test_interval");
     var v_plane = new V_plane(canvas);
 
     var xmlhttp = new XMLHttpRequest();
@@ -166,7 +172,7 @@
             }
             else
             {
-                if ((dy > (delta)) && (d_scale > 0))
+                if ((dy > (delta / 10)) && (d_scale > 0))
                 {
                     cur_scale.y *= ratio;
                 }
@@ -197,11 +203,14 @@
         var short_span = eval(document.getElementById("short_span").value) * 1000;
         var short_power = eval(document.getElementById("short_power").value);
 
+        var absolute_diff = eval(document.getElementById("absolute_diff").value);
+
         return {
             mean_span: mean_span,
             mean_power: mean_power,
             short_span: short_span,
-            short_power: short_power
+            short_power: short_power,
+            absolute_diff: absolute_diff
         }
     }
 
@@ -296,6 +305,7 @@
     function test_interval()
     {
         on_test_interval_clear_fun();
+        test_interval_button.disabled = true;
 
         var i_params = get_indicators_params();
 
@@ -310,7 +320,8 @@
             mean_span: i_params.mean_span,
             mean_power: i_params.mean_power,
             short_span: i_params.short_span,
-            short_power: i_params.short_power
+            short_power: i_params.short_power,
+            absolute_diff: i_params.absolute_diff
         };
 
         var xmlhttp = new XMLHttpRequest();
@@ -318,6 +329,7 @@
         {
             if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
             {
+                test_interval_button.disabled = false;
                 var response = JSON.parse(xmlhttp.responseText);
                 switch (response.status)
                 {

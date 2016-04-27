@@ -77,7 +77,8 @@ handle(Req, State=#state{operation = test_interval}) ->
     mean_span := Mean_span,
     mean_power := Mean_power,
     short_span := Short_span,
-    short_power := Short_power
+    short_power := Short_power,
+    absolute_diff := Absolute_diff
   } = Query,
 
   Gen_left_predicate =
@@ -109,11 +110,12 @@ handle(Req, State=#state{operation = test_interval}) ->
           D_mean_val = tapol_epol:calc_val(D_mean_p, X),
           D_short_p = tapol_epol:derivative(Short_p),
           D_short_val = tapol_epol:calc_val(D_short_p, X),
-          Short_val = tapol_epol:calc_val(Short_p, X),
+          _Short_val = tapol_epol:calc_val(Short_p, X),
+          Diff = Y - Mean_val,
           case D_mean_val > 0 of
             true ->
               %%possible long
-              case (Short_val < Mean_val) andalso (D_short_val > 0) of
+              case (Diff < -1 * Absolute_diff) andalso (D_short_val > 0) of
                 true ->
                   %%long
                   New_acc#{long_v => Long_v ++ [Tick]};
@@ -122,7 +124,7 @@ handle(Req, State=#state{operation = test_interval}) ->
               end;
             false ->
               %%possible short
-              case (Short_val > Mean_val) andalso (D_short_val < 0) of
+              case (Diff > Absolute_diff) andalso (D_short_val < 0) of
                 true ->
                   %%short
                   New_acc#{short_v => Short_v ++ [Tick]};
