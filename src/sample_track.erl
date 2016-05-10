@@ -48,7 +48,7 @@
 -record(file_data,{
   file :: file:io_device(),
   leftover = <<>> :: binary(),
-  last_tick_time = 0 :: binary()
+  last_tick_time = undefined :: undefined | binary()
 }).
 
 -record(state, {
@@ -318,32 +318,64 @@ extract_ticks_from_chunk(Chunk, Last_tick_time) ->
   {Ticks, Leftover, Time}.
 
 
--spec dat_time_str_to_miliseconds(Bin_str :: binary(), Prev_time :: integer()) -> integer().
-%% @doc converts string of the following format:
+-spec dat_time_str_to_miliseconds(Bin_str :: binary(), Prev_time :: integer() | undefined) -> integer().
+%% @doc 1)converts string of the following format:
 %%           YYYY-MM-DD HH:MM:SS<.milisec>
-%%      into a number of miliseconds from 1st Jan 1970
-%%      in case of any other format
+%%        into a number of miliseconds from 1st Jan 1970
+%%      2) if Bin_str contains the following format:
+%%           DD.MM.YYYY HH:MM
+%%         and Prev_time =:= undefined
+%%         converts Bin_str to miliseconds from 1st Jan 1970
+%%      3) In all other cases
 %%      the Prev_time is returned
 dat_time_str_to_miliseconds(Bin_str, Prev_time) ->
-  [Date_str, Time_str] = binary:split(Bin_str, <<" ">>),
-  case binary:split(Date_str, <<"-">>, [global]) of
-    [Year_str, Month_str, Day_str] ->
-      case binary:split(Time_str, [<<":">>, <<".">>], [global]) of
-        [Hour_str, Min_str, Sec_str, Msec_str] ->
-          [Year, Month, Day, Hour, Min, Sec, Msec] =
-            [binary_to_integer(X) ||
-              X <- [Year_str, Month_str, Day_str, Hour_str, Min_str, Sec_str, Msec_str]],
-          Date_time = {{Year, Month, Day}, {Hour, Min, Sec}},
-          Sec_since_0 = calendar:datetime_to_gregorian_seconds(Date_time),
-          %%have to extarct the seconds for 1970 Jan 1st and
-          Seconds_since_1790 = Sec_since_0 -
-            calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
-          %%and add miliseconds
-          Seconds_since_1790 * 1000 + Msec;
-        _ ->
-          Prev_time
-      end;
-    _ ->
+  Parse_result =
+    case binary:split(Bin_str, <<" ">>) of
+      [Date_str, Time_str] ->
+        case binary:split(Date_str, <<"-">>, [global]) of
+          [Year_str, Month_str, Day_str] ->
+            %% clause 1
+            case binary:split(Time_str, [<<":">>, <<".">>], [global]) of
+              [Hour_str, Min_str, Sec_str, Msec_str] ->
+                {ok, [Year_str, Month_str, Day_str, Hour_str, Min_str, Sec_str, Msec_str]};
+              _ ->
+                {error, time_format_is_not_1}
+            end;
+          _ ->
+            case Prev_time =:= undefined of
+              true ->
+                %%check condition for clause 2
+                case binary:split(Date_str, <<".">>, [global]) of
+                  [Day_str, Month_str, Year_str] ->
+                    case binary:split(Time_str, <<":">>, [global]) of
+                      [Hour_str, Min_str] ->
+                        {ok, [Year_str, Month_str, Day_str, Hour_str, Min_str, <<"0">>, <<"0">>]};
+                      _ ->
+                        {error, time_format_is_not_2}
+                    end;
+                  _ ->
+                    {error, date_format_is_not_2}
+                end;
+              false ->
+                {error, date_format_is_not_1_and_prev_time_is_not_undefined}
+            end
+        end;
+      _ ->
+        {error, wrong_bin_format}
+    end,
+  case Parse_result of
+    {ok, Str_list} ->
+      [Year, Month, Day, Hour, Min, Sec, Msec] =
+        [binary_to_integer(X) ||
+          X <- Str_list],
+      Date_time = {{Year, Month, Day}, {Hour, Min, Sec}},
+      Sec_since_0 = calendar:datetime_to_gregorian_seconds(Date_time),
+      %%have to extarct the seconds for 1970 Jan 1st and
+      Seconds_since_1790 = Sec_since_0 -
+        calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
+      %%and add miliseconds
+      Seconds_since_1790 * 1000 + Msec;
+    {error, _Reson} ->
       Prev_time
   end.
 
@@ -387,6 +419,22 @@ decimate_ticks([#tick_rec{time = T_start} | _] = Ticks) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%% unit tests
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+dat_time_str_to_miliseconds_test_() ->
+  T_bin_1 =  <<"2010-01-11 10:30:00.080">>,
+  T_bin_2 = <<"11.01.2010 10:30">>,
+
+  Res_1 = dat_time_str_to_miliseconds(T_bin_1, 0),
+  Res_2 = dat_time_str_to_miliseconds(T_bin_1, undefined),
+  Res_3 = dat_time_str_to_miliseconds(T_bin_2, 0),
+  Res_4 = dat_time_str_to_miliseconds(T_bin_2, undefined),
+
+  [
+    ?_assertEqual(true, is_integer(Res_1) andalso Res_1 > 0),
+    ?_assertEqual(true, is_integer(Res_2) andalso Res_2 > 0),
+    ?_assertEqual(true, is_integer(Res_3) andalso Res_3 =:= 0),
+    ?_assertEqual(true, is_integer(Res_4) andalso Res_4 > 0)
+  ].
+
 extract_ticks_from_chunk_test_() ->
   P = 100.0,
   P_bin = float_to_binary(P),
