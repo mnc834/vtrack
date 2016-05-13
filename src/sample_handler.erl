@@ -1,12 +1,16 @@
 -module(sample_handler).
 -behaviour(cowboy_http_handler).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -export([init/3]).
 -export([handle/2]).
 -export([terminate/3]).
 
 -record(state, {
-  operation :: next_chunk | indicators | test_interval
+  operation :: next_chunk | indicators | test_interval | evaluate_interval
 }).
 
 init(_, Req, [next_chunk]) ->
@@ -14,7 +18,9 @@ init(_, Req, [next_chunk]) ->
 init(_Type, Req, [indicators]) ->
   {ok, Req, #state{operation = indicators}};
 init(_Type, Req, [test_interval]) ->
-  {ok, Req, #state{operation = test_interval}}.
+  {ok, Req, #state{operation = test_interval}};
+init(_Type, Req, [evaluate_interval]) ->
+  {ok, Req, #state{operation = evaluate_interval}}.
 
 handle(Req, State=#state{operation = next_chunk}) ->
   Resp_hdr =
@@ -115,7 +121,7 @@ handle(Req, State=#state{operation = test_interval}) ->
           case D_mean_val > 0 of
             true ->
               %%possible long
-              case (Diff < -1 * Absolute_diff) andalso (D_short_val > 0) of
+              case (Diff < -1 * Absolute_diff) andalso (D_short_val > 0) andalso (D_short_val > D_mean_val) of
                 true ->
                   %%long
                   New_acc#{long_v => Long_v ++ [Tick]};
@@ -124,7 +130,7 @@ handle(Req, State=#state{operation = test_interval}) ->
               end;
             false ->
               %%possible short
-              case (Diff > Absolute_diff) andalso (D_short_val < 0) of
+              case (Diff > Absolute_diff) andalso (D_short_val < 0) andalso (D_short_val < D_mean_val) of
                 true ->
                   %%short
                   New_acc#{short_v => Short_v ++ [Tick]};
@@ -143,7 +149,184 @@ handle(Req, State=#state{operation = test_interval}) ->
   Resp_body = jsx:encode(Resp),
 
   {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp, State};
+
+handle(Req, State=#state{operation = evaluate_interval}) ->
+  Resp_hdr =
+    [
+      {<<"content-type">>, <<"text/plain">>}
+    ],
+
+  {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
+  Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
+  #{
+    x_shift := X_shift,
+    y_shift := Y_shift,
+    left := Left,
+    right := Right,
+    max_p := Max_p,
+    max_l := Max_l
+  } = Query,
+
+  Gen_pos =
+    fun(#{price := P, time := T}, Direction) ->
+      fun Pos_fun(#{price := P_cur, time := T_cur},
+          #{l_p_list := L_p_list, l_l_list := L_l_list,
+            s_p_list := S_p_list, s_l_list := S_l_list, fun_list := Fun_list} = Acc) ->
+        Diff =
+          case Direction of
+            long ->
+              P_cur - P;
+            short ->
+              P - P_cur
+          end,
+        Profitable =
+          case (Diff > Max_p) of
+            true ->
+              %%profitable deal
+              true;
+            false ->
+              case (-1 * Diff) > Max_l of
+                true ->
+                  %%unprofitable deal
+                  false;
+                false ->
+                  undefined
+              end
+          end,
+        case is_boolean(Profitable) of
+          true ->
+            Deal = #{
+              price => P,
+              time => T,
+              profitable => Profitable,
+              close_price => P_cur,
+              close_time => T_cur
+            },
+            case {Direction, Profitable} of
+              {long, true} ->
+                %% add the deal to the long profit list
+                Acc#{l_p_list => L_p_list ++ [Deal]};
+              {long, false} ->
+                %% add the deal to the long losses list
+                Acc#{l_l_list => L_l_list ++ [Deal]};
+              {short, true} ->
+                %% add the deal to the short profit list
+                Acc#{s_p_list => S_p_list ++ [Deal]};
+              {short, false} ->
+                %% add the deal to the short losses list
+                Acc#{s_l_list => S_l_list ++ [Deal]}
+            end;
+          false ->
+            %% keep the position on the long list
+            Acc#{fun_list => Fun_list ++ [Pos_fun]}
+        end
+      end
+    end,
+
+  Shift_right = Right + X_shift,
+
+  Foldl_fun =
+    fun(#{time := T} = Tick, #{fun_list := Fun_list} = Acc) ->
+      #{fun_list := New_fun_list} = New_acc =
+        lists:foldl(fun(Fun, Cur_acc) -> Fun(Tick, Cur_acc) end,
+          Acc#{fun_list => []}, Fun_list),
+      case T < Shift_right of
+        true ->
+          %%have to open a position
+          Long = Gen_pos(Tick, long),
+          Short = Gen_pos(Tick, short),
+          %%and add the to acc
+          {true, New_acc#{fun_list => New_fun_list ++ [Long, Short]}};
+        false ->
+          %% have to check if the processing should be stopped
+          {New_fun_list =/= [], New_acc}
+      end
+    end,
+
+
+  L = [#{price => P + Y_shift, time => T + X_shift} ||
+    #{price := P, time := T} <- sample_track:slice_ticks_after(Left)],
+
+  Init_state = #{
+    l_p_list => [],
+    l_l_list => [],
+    s_p_list => [],
+    s_l_list => [],
+    fun_list => []
+  },
+
+  #{l_p_list := L_p_list, l_l_list := L_l_list,
+    s_p_list := S_p_list, s_l_list := S_l_list} =
+    foldl_while(Foldl_fun, Init_state, L),
+
+
+
+  Resp = #{
+    status => ok,
+    l_p_list => L_p_list,
+    l_l_list => L_l_list,
+    s_p_list => S_p_list,
+    s_l_list => S_l_list
+  },
+  Resp_body = jsx:encode(Resp),
+
+  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
   {ok, Req_resp, State}.
 
 terminate(_Reason, _Req, _State) ->
   ok.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+-spec foldl_while(Fun, Acc0, List) -> Acc1 when
+  Fun :: fun((Elem :: T, Acc_in) -> {boolean(), Acc_out}),
+  Acc0 :: term(),
+  Acc1 :: term(),
+  Acc_in :: term(),
+  Acc_out :: term(),
+  List :: [T],
+  T :: term().
+%% @doc implements foldl operation on the list while Fun terurns {true, _} or end of list is reached,
+%%      if Fun returns {false, Acc_out} -> Acc_out is returned and processing is stopped
+foldl_while(_Fun, Acc_in, []) ->
+  Acc_in;
+foldl_while(Fun, Acc_in, [H | T]) ->
+  {Continue, Acc_out} = Fun(H, Acc_in),
+  case Continue of
+    true ->
+      foldl_while(Fun, Acc_out, T);
+    false ->
+      Acc_out
+  end.
+
+%%%===================================================================
+%%% Unit tests
+%%%===================================================================
+-ifdef(TEST).
+
+foldl_while_test_() ->
+  N = 10,
+  L = lists:seq(1, N),
+
+  Gen_count =
+    fun(S) ->
+      fun(X, Acc) ->
+        {X < S, Acc + 1}
+      end
+    end,
+
+  Res_1 = foldl_while(Gen_count(N + 1), 0, []),
+  Res_2 = foldl_while(Gen_count(N + 1), 0, L),
+  Res_3 = foldl_while(Gen_count(N), 0, L),
+  Res_4 = foldl_while(Gen_count(5), 0, L),
+
+  [
+    ?_assertEqual(0, Res_1),
+    ?_assertEqual(N, Res_2),
+    ?_assertEqual(N, Res_3),
+    ?_assertEqual(5, Res_4)
+  ].
+
+-endif.

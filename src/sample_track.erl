@@ -27,7 +27,8 @@
 -export([start_link/1,
   get_data/0,
   read_next_chunk/0,
-  slice_ticks/2]).
+  slice_ticks/2,
+  slice_ticks_after/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -89,6 +90,10 @@ read_next_chunk() ->
 slice_ticks(From, To) ->
   gen_server:call(?SERVER, {slice_ticks, From, To}).
 
+-spec slice_ticks_after(From :: integer()) -> [tick()].
+%% @doc extracts ticks which have time within more than FRrom
+slice_ticks_after(From) ->
+  gen_server:call(?SERVER, {slice_ticks_after, From}).
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -173,6 +178,10 @@ handle_call({slice_ticks, From, To}, _From, #state{ticks = Deals} = State) ->
   To_pred = gen_before_t_predicate(To),
   L_1 = lists:dropwhile(From_pred, Deals),
   L = lists:takewhile(To_pred, L_1),
+  {reply, L, State};
+handle_call({slice_ticks_after, From}, _From, #state{ticks = Deals} = State) ->
+  From_pred = gen_before_t_predicate(From),
+  L = lists:dropwhile(From_pred, Deals),
   {reply, L, State}.
 
 

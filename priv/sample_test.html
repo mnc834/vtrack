@@ -47,6 +47,17 @@
         <button id = "test_interval" onclick="test_interval()">TEST_INTERVAL</button>
     </p>
 
+    <hr>
+
+    <label for="max_p">max_p</label>
+    <input type="text" id="max_p" value="10">
+    <label for="max_l">max_l</label>
+    <input type="text" id="max_l" value="1">
+
+    <p>
+        <button id = "evaluate_interval" onclick="evaluate_interval()">EVALUATE_INTERVAL</button>
+    </p>
+
 </div>
 
 <script>
@@ -54,6 +65,7 @@
 
     var canvas = document.getElementById("Canvas");
     var test_interval_button = document.getElementById("test_interval");
+    var evaluate_interval_button = document.getElementById("evaluate_interval");
     var v_plane = new V_plane(canvas);
 
     var xmlhttp = new XMLHttpRequest();
@@ -219,92 +231,109 @@
     v_plane.add_on_click_listener(
             function (p)
             {
-                v_plane_on_click_clear_fun();
-                v_plane_on_click_clear_fun = function() {};
-
-                var i_params = get_indicators_params();
-
-                var mean_from = p.x - i_params.mean_span;
-                var short_from = p.x - i_params.short_span;
-                var to = p.x;
-
-                var d = new Date(correct_time(p.x));
-                console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
-
-                var mean_data =
+                if (!p.ctrlKey)
                 {
-                    left: mean_from,
-                    right: to,
-                    power: i_params.mean_power,
-                    colour: "#00FF00"
-                };
+                    v_plane_on_click_clear_fun();
 
-                var short_data =
-                {
-                    left: short_from,
-                    right: to,
-                    power: i_params.short_power,
-                    colour: "#0000FF"
-                };
-                var polynomials =
-                        [
-                            mean_data,
-                            short_data
-                        ];
-                var xmlhttp = new XMLHttpRequest();
-                xmlhttp.onreadystatechange = function()
-                {
-                    if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
+                    var i_params = get_indicators_params();
+
+                    var mean_from = p.x - i_params.mean_span;
+                    var short_from = p.x - i_params.short_span;
+                    var to = p.x;
+
+                    var d = new Date(correct_time(p.x));
+                    console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
+
+                    var mean_data =
                     {
-                        var response = JSON.parse(xmlhttp.responseText);
-                        for (var i = 0; i < response.length; i++)
-                        {
-                            switch (response[i].status)
+                        left: mean_from,
+                        right: to,
+                        power: i_params.mean_power,
+                        colour: "#00FF00"
+                    };
+
+                    var short_data =
+                    {
+                        left: short_from,
+                        right: to,
+                        power: i_params.short_power,
+                        colour: "#0000FF"
+                    };
+                    var polynomials =
+                            [
+                                mean_data,
+                                short_data
+                            ];
+                    var xmlhttp = new XMLHttpRequest();
+                    xmlhttp.onreadystatechange = function () {
+                        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                            var response = JSON.parse(xmlhttp.responseText);
+                            for (var i = 0; i < response.length; i++)
                             {
-                                case 'ok':
-                                    var polynomial = new G_polynomial(response[i].coefficients,
-                                            polynomials[i].colour, polynomials[i]);
-                                    var polynomial_id = v_plane.add_g_object(polynomial);
-                                    v_plane_on_click_clear_fun = function (fun, id)
-                                    {
-                                        return function ()
+                                switch (response[i].status)
+                                {
+                                    case 'ok':
+                                        var polynomial = new G_polynomial(response[i].coefficients,
+                                                polynomials[i].colour, polynomials[i]);
+                                        var polynomial_id = v_plane.add_g_object(polynomial);
+                                        v_plane_on_click_clear_fun = function (fun, id)
                                         {
-                                            fun();
-                                            v_plane.remove_g_object(id);
-                                        };
-                                    }(v_plane_on_click_clear_fun, polynomial_id);
-                                    break;
+                                            return function ()
+                                            {
+                                                fun();
+                                                v_plane.remove_g_object(id);
+                                            };
+                                        }(v_plane_on_click_clear_fun, polynomial_id);
+                                        break;
+                                }
                             }
+                            v_plane_on_click_clear_fun = function (fun)
+                            {
+                                return function()
+                                {
+                                    fun();
+                                    v_plane_on_click_clear_fun = function () {}
+                                }
+                            }(v_plane_on_click_clear_fun);
                         }
+                    };
+                    var polynomial_params = new Array(polynomials.length);
+                    for (var i = 0; i < polynomials.length; i++) {
+                        polynomial_params[i] = function (data) {
+                            var left = correct_time(data.left);
+                            var right = correct_time(data.right);
+                            var power = data.power;
+                            return {left: left, right: right, power: power};
+                        }(polynomials[i]);
                     }
-                };
-                var polynomial_params = new Array(polynomials.length);
-                for (var i = 0; i < polynomials.length; i++)
-                {
-                    polynomial_params[i] = function(data)
+                    var query =
                     {
-                        var left = correct_time(data.left);
-                        var right = correct_time(data.right);
-                        var power = data.power;
-                        return {left: left, right: right, power: power};
-                    }(polynomials[i]);
+                        x_shift: -1 * correct_time(0),
+                        y_shift: -1 * correct_val(0),
+                        polynomials: polynomial_params
+                    };
+                    xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(query), true);
+                    xmlhttp.send();
                 }
-                var query =
-                {
-                    x_shift: -1 * correct_time(0),
-                    y_shift: -1 * correct_val(0),
-                    polynomials: polynomial_params
-                };
-                xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(query), true);
-                xmlhttp.send();
             }
     );
 
     var on_test_interval_clear_fun = function() {};
+    var on_evaluate_interval_clear_fun = function() {};
+
+    function clear_interval()
+    {
+        on_test_interval_clear_fun();
+
+        on_evaluate_interval_clear_fun();
+
+        v_plane_on_click_clear_fun();
+    }
 
     function test_interval()
     {
-        on_test_interval_clear_fun();
+        clear_interval();
+
         test_interval_button.disabled = true;
 
         var i_params = get_indicators_params();
@@ -345,6 +374,7 @@
                             v_plane.remove_g_object(rectangle_id);
                             v_plane.remove_g_object(short_id);
                             v_plane.remove_g_object(long_id);
+                            on_test_interval_clear_fun = function() {}
                         };
 
                         break;
@@ -353,6 +383,150 @@
         };
 
         xmlhttp.open("GET", url + "/test_interval" + '?' + 'params=' + JSON.stringify(query), true);
+        xmlhttp.send();
+    }
+
+    function convert_deals(arr)
+    {
+        var i;
+        var n = arr.length;
+        var out = new Array(n);
+        for (i = 0; i < n; i++)
+        {
+            out[i] = arr[i];
+            out[i].x = arr[i].time;
+            out[i].y = arr[i].price;
+        }
+
+        return out
+    }
+
+    function evaluate_interval()
+    {
+        clear_interval();
+
+        evaluate_interval_button.disabled = true;
+
+        var max_p = eval(document.getElementById("max_p").value);
+        var max_l = eval(document.getElementById("max_l").value);
+
+        var w = v_plane.get_physical_window();
+
+        var query =
+        {
+            x_shift: -1 * correct_time(0),
+            y_shift: -1 * correct_val(0),
+            left: correct_time(w.left),
+            right: correct_time(w.right),
+            max_p: max_p,
+            max_l: max_l
+        };
+
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function()
+        {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200)
+            {
+                evaluate_interval_button.disabled = false;
+                var response = JSON.parse(xmlhttp.responseText);
+                switch (response.status) {
+                    case 'ok':
+                        var profit_colour = "#00FF00";
+                        var loss_colour = "#FF00FF";
+                        var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
+                        var g_p_list = new G_sample_list(convert_deals(response.l_p_list), profit_colour);
+                        var g_l_list = new G_sample_list(convert_deals(response.l_l_list), loss_colour);
+                        var p_list_id = v_plane.add_g_object(g_p_list);
+                        var l_list_id = v_plane.add_g_object(g_l_list);
+
+                        var clear_deal_image_fun = function() {};
+                        var v_list = [g_p_list, g_l_list];
+
+                        var on_click_listener = function(e)
+                        {
+                            var radius = 10;
+                            var screen_r = v_plane.screen_to_physical({x: radius, y: radius});
+                            var screen_origin = v_plane.screen_to_physical({x: 0, y: 0});
+                            var d_x = screen_r.x - screen_origin.x;
+                            var d_y = screen_origin.x - screen_r.y;
+                            var delta = d_x > d_y ? d_x : d_y;
+                            if (e.ctrlKey)
+                            {
+                                clear_deal_image_fun();
+                                var i;
+                                var diff = undefined;
+                                var deal;
+                                function calc_diff(p1, p2)
+                                {
+                                    var dx = p1.x - p2.x;
+                                    var dy = p1.y - p2.y;
+                                    return (dx * dx - dy * dy);
+                                }
+
+                                for(i = 0; i < v_list.length; i++)
+                                {
+                                    var tmp = v_list[i].check_selection(e, delta);
+                                    if ('object' == typeof tmp)
+                                    {
+                                        if ('object' == typeof deal)
+                                        {
+                                            var cur_diff = calc_diff(e, tmp);
+                                            if (cur_diff < diff)
+                                            {
+                                                deal = tmp;
+                                                diff = cur_diff;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // the first match
+                                            deal = tmp;
+                                            diff = calc_diff(e, deal);
+                                        }
+                                    }
+                                }
+
+                                if ('object' == typeof deal)
+                                {
+                                    var open = {x: deal.time, y: deal.price};
+                                    var close = {x: deal. close_time, y:deal.close_price};
+                                    var colour = deal.profitable ? profit_colour : loss_colour;
+
+                                    var g_open_id = v_plane.add_g_object(new G_selection_circle(open, radius, colour));
+                                    var g_close_id = v_plane.add_g_object(new G_selection_circle(close, radius, colour));
+
+                                    var g_line = new Line(open, close, colour);
+                                    g_line.set_line_width(1);
+                                    var g_line_id = v_plane.add_g_object(g_line);
+                                }
+
+                                clear_deal_image_fun = function()
+                                {
+                                    v_plane.remove_g_object(g_open_id);
+                                    v_plane.remove_g_object(g_close_id);
+                                    v_plane.remove_g_object(g_line_id);
+                                }
+                            }
+                        };
+
+                        var on_click_listener_id = v_plane.add_on_click_listener(on_click_listener);
+
+                        on_evaluate_interval_clear_fun = function ()
+                        {
+                            clear_deal_image_fun();
+                            v_plane.remove_g_object(p_list_id);
+                            v_plane.remove_g_object(l_list_id);
+                            v_plane.remove_g_object(rectangle_id);
+                            v_plane.remove_on_click_listener(on_click_listener_id);
+                            on_evaluate_interval_clear_fun = function() {}
+                        };
+
+                        break;
+                }
+            }
+        };
+
+        xmlhttp.open("GET", url + "/evaluate_interval" + '?' + 'params=' + JSON.stringify(query), true);
         xmlhttp.send();
     }
 
