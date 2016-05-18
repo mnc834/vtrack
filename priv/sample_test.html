@@ -54,6 +54,12 @@
     <label for="max_l">max_l</label>
     <input type="text" id="max_l" value="1">
 
+
+    <form id="direction">
+        <label><input type="radio" name="direction" onclick="direction_changed(this.value)" checked=true disabled value="L">L</label>
+        <label><input type="radio" name="direction" onclick="direction_changed(this.value)" disabled value="S">S</label>
+    </form>
+
     <p>
         <button id = "evaluate_interval" onclick="evaluate_interval()">EVALUATE_INTERVAL</button>
     </p>
@@ -66,6 +72,7 @@
     var canvas = document.getElementById("Canvas");
     var test_interval_button = document.getElementById("test_interval");
     var evaluate_interval_button = document.getElementById("evaluate_interval");
+    var direction_elements = document.getElementById("direction").elements;
     var v_plane = new V_plane(canvas);
 
     var xmlhttp = new XMLHttpRequest();
@@ -386,6 +393,16 @@
         xmlhttp.send();
     }
 
+    function enable_direction(enabled)
+    {
+        for (var i = 0; i < direction_elements.length; i++)
+        {
+            direction_elements[i].disabled = !enabled
+        }
+    }
+
+    var direction_changed = function(v) {};
+
     function convert_deals(arr)
     {
         var i;
@@ -431,93 +448,119 @@
                 var response = JSON.parse(xmlhttp.responseText);
                 switch (response.status) {
                     case 'ok':
-                        var profit_colour = "#00FF00";
-                        var loss_colour = "#FF00FF";
+                        enable_direction(true);
+
                         var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
-                        var g_p_list = new G_sample_list(convert_deals(response.l_p_list), profit_colour);
-                        var g_l_list = new G_sample_list(convert_deals(response.l_l_list), loss_colour);
-                        var p_list_id = v_plane.add_g_object(g_p_list);
-                        var l_list_id = v_plane.add_g_object(g_l_list);
 
-                        var clear_deal_image_fun = function() {};
-                        var v_list = [g_p_list, g_l_list];
 
-                        var on_click_listener = function(e)
+                        var clear_positions = function() {};
+
+                        direction_changed = function(direction)
                         {
-                            var radius = 10;
-                            var screen_r = v_plane.screen_to_physical({x: radius, y: radius});
-                            var screen_origin = v_plane.screen_to_physical({x: 0, y: 0});
-                            var d_x = screen_r.x - screen_origin.x;
-                            var d_y = screen_origin.x - screen_r.y;
-                            var delta = d_x > d_y ? d_x : d_y;
-                            if (e.ctrlKey)
-                            {
-                                clear_deal_image_fun();
-                                var i;
-                                var diff = undefined;
-                                var deal;
-                                function calc_diff(p1, p2)
-                                {
-                                    var dx = p1.x - p2.x;
-                                    var dy = p1.y - p2.y;
-                                    return (dx * dx - dy * dy);
-                                }
+                            clear_positions();
 
-                                for(i = 0; i < v_list.length; i++)
+                            var l_profit_colour = "#00FF00";
+                            var s_profit_colour = "#0000FF";
+                            var loss_colour = "#FF00FF";
+
+                            var p_list = direction == 'L' ? response.l_p_list : response.s_p_list;
+                            var l_list = direction == 'L' ? response.l_l_list : response.s_l_list;
+                            var profit_colour = direction == 'L' ? l_profit_colour : s_profit_colour;
+                            var g_p_list = new G_sample_list(convert_deals(p_list), profit_colour);
+                            var g_l_list = new G_sample_list(convert_deals(l_list), loss_colour);
+                            var p_list_id = v_plane.add_g_object(g_p_list);
+                            var l_list_id = v_plane.add_g_object(g_l_list);
+
+                            var v_list = [g_p_list, g_l_list];
+
+                            var clear_deal_image_fun = function() {};
+
+                            var on_click_listener = function(e)
+                            {
+                                var radius = 10;
+                                var screen_r = v_plane.screen_to_physical({x: radius, y: radius});
+                                var screen_origin = v_plane.screen_to_physical({x: 0, y: 0});
+                                var d_x = screen_r.x - screen_origin.x;
+                                var d_y = screen_origin.x - screen_r.y;
+                                var delta = d_x > d_y ? d_x : d_y;
+                                if (e.ctrlKey)
                                 {
-                                    var tmp = v_list[i].check_selection(e, delta);
-                                    if ('object' == typeof tmp)
+                                    clear_deal_image_fun();
+                                    var i;
+                                    var diff = undefined;
+                                    var deal;
+                                    function calc_diff(p1, p2)
                                     {
-                                        if ('object' == typeof deal)
+                                        var dx = p1.x - p2.x;
+                                        var dy = p1.y - p2.y;
+                                        return (dx * dx - dy * dy);
+                                    }
+
+                                    for(i = 0; i < v_list.length; i++)
+                                    {
+                                        var tmp = v_list[i].check_selection(e, delta);
+                                        if ('object' == typeof tmp)
                                         {
-                                            var cur_diff = calc_diff(e, tmp);
-                                            if (cur_diff < diff)
+                                            if ('object' == typeof deal)
                                             {
+                                                var cur_diff = calc_diff(e, tmp);
+                                                if (cur_diff < diff)
+                                                {
+                                                    deal = tmp;
+                                                    diff = cur_diff;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // the first match
                                                 deal = tmp;
-                                                diff = cur_diff;
+                                                diff = calc_diff(e, deal);
                                             }
                                         }
-                                        else
-                                        {
-                                            // the first match
-                                            deal = tmp;
-                                            diff = calc_diff(e, deal);
-                                        }
+                                    }
+
+                                    if ('object' == typeof deal)
+                                    {
+                                        var open = {x: deal.time, y: deal.price};
+                                        var close = {x: deal. close_time, y:deal.close_price};
+                                        var colour = deal.profitable ? profit_colour : loss_colour;
+
+                                        var g_open_id = v_plane.add_g_object(new G_selection_circle(open, radius, colour));
+                                        var g_close_id = v_plane.add_g_object(new G_selection_circle(close, radius, colour));
+
+                                        var g_line = new Line(open, close, colour);
+                                        g_line.set_line_width(1);
+                                        var g_line_id = v_plane.add_g_object(g_line);
+                                    }
+
+                                    clear_deal_image_fun = function()
+                                    {
+                                        v_plane.remove_g_object(g_open_id);
+                                        v_plane.remove_g_object(g_close_id);
+                                        v_plane.remove_g_object(g_line_id);
                                     }
                                 }
+                            };
 
-                                if ('object' == typeof deal)
-                                {
-                                    var open = {x: deal.time, y: deal.price};
-                                    var close = {x: deal. close_time, y:deal.close_price};
-                                    var colour = deal.profitable ? profit_colour : loss_colour;
+                            var on_click_listener_id = v_plane.add_on_click_listener(on_click_listener);
 
-                                    var g_open_id = v_plane.add_g_object(new G_selection_circle(open, radius, colour));
-                                    var g_close_id = v_plane.add_g_object(new G_selection_circle(close, radius, colour));
-
-                                    var g_line = new Line(open, close, colour);
-                                    g_line.set_line_width(1);
-                                    var g_line_id = v_plane.add_g_object(g_line);
-                                }
-
-                                clear_deal_image_fun = function()
-                                {
-                                    v_plane.remove_g_object(g_open_id);
-                                    v_plane.remove_g_object(g_close_id);
-                                    v_plane.remove_g_object(g_line_id);
-                                }
-                            }
+                            clear_positions = function()
+                            {
+                                clear_deal_image_fun();
+                                v_plane.remove_g_object(p_list_id);
+                                v_plane.remove_g_object(l_list_id);
+                                v_plane.remove_on_click_listener(on_click_listener_id);
+                            };
                         };
 
-                        var on_click_listener_id = v_plane.add_on_click_listener(on_click_listener);
+                        direction_changed(direction_elements.namedItem("direction").value);
+
 
                         on_evaluate_interval_clear_fun = function ()
                         {
-                            clear_deal_image_fun();
-                            v_plane.remove_g_object(p_list_id);
-                            v_plane.remove_g_object(l_list_id);
+                            enable_direction(false);
+                            clear_positions();
                             v_plane.remove_g_object(rectangle_id);
-                            v_plane.remove_on_click_listener(on_click_listener_id);
                             on_evaluate_interval_clear_fun = function() {}
                         };
 
