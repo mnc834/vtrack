@@ -1,6 +1,6 @@
 [submodule "apps/tapol"]
 	path = apps/tapol
-	url = ssh://pkq874@zru11lix02/home/pkq874/repo/tapol.git
+	url = https://github.com/mnc834/tapol.git
 [submodule "priv/js"]
 	path = priv/js
 	url = ssh://pkq874@zru11lix02/home/pkq874/repo/js.git
