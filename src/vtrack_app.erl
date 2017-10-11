@@ -14,7 +14,7 @@ start(_Type, _Args) ->
         {"/sample_test", cowboy_static, {priv_file, vtrack, "sample_test.html"}},
 
         %%js files
-        {"/js/[...]", cowboy_static, {priv_dir, vtrack, "js/src"}},
+        {"/vjs/[...]", cowboy_static, {priv_dir, vtrack, "vjs/src"}},
 
         %%polynomial coefficients calculator
         {"/lss", lss_handler, []},
