@@ -269,6 +269,42 @@ handle(Req, State=#state{operation = evaluate_interval}) ->
     s_p_list => S_p_list,
     s_l_list => S_l_list
   },
+
+  Process_fun =
+    fun(#{price := P, time := T, profitable := Profitable, close_price := C_p, close_time := C_t},
+        #{count := N, sum := S, time := V}) ->
+      Diff = abs(C_p - P),
+      Add =
+        case Profitable of
+          true ->
+             Diff;
+          false ->
+            -1 * Diff
+        end,
+      #{count => N + 1, sum => S + Add, time => V + C_t - T}
+    end,
+
+  For_each_fun =
+    fun({Name, Deals}) ->
+      #{count := N, sum := S, time := T} =
+        lists:foldl(Process_fun, #{count => 0, sum => 0, time => 0}, Deals),
+      {Average_time, Average_p} =
+        case N > 0 of
+          true ->
+            {
+              calendar:seconds_to_daystime(round(T / (N * 1000))),
+              S / N
+            };
+          false ->
+            {"N/A", "N/A"}
+        end,
+      io:format("~p: N = ~p; sum = ~.3f;(~.3f); mean_time = ~p~n", [Name, N, S, Average_p, Average_time])
+    end,
+
+  io:format("~n========== max_p = ~p; max_l = ~p =============~n", [Max_p, Max_l]),
+  lists:foreach(For_each_fun, [{l_p, L_p_list}, {l_l, L_l_list}, {s_p, S_p_list}, {s_l, S_l_list}]),
+  io:format("================================================~n"),
+
   Resp_body = jsx:encode(Resp),
 
   {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
