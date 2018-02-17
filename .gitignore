@@ -8,3 +8,4 @@ _rel/
 vtrack.d
 relx
 .erlang.mk/
+*.plt

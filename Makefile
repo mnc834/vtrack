@@ -6,6 +6,6 @@ PROJECT_VERSION = 0.0.1
 SP = 2
 
 DEPS = cowboy
-DEPS = jsx
+DEPS += jsx
 
 include erlang.mk

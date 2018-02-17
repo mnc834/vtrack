@@ -47,9 +47,9 @@
 }).
 
 -record(file_data,{
-  file :: file:io_device(),
+  file :: file:io_device() | undefined,
   leftover = <<>> :: binary(),
-  last_tick_time = undefined :: undefined | binary()
+  last_tick_time = undefined :: undefined | integer()
 }).
 
 -record(state, {
@@ -170,7 +170,7 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, ticks = Deals}
     Result ->
       %%either eof or {error, Error}
       #file_data{file = Fd} = File_data,
-      file:close(Fd),
+      ok = file:close(Fd),
       {reply, Result, State#state{file_data = File_data#file_data{file = undefined}}}
   end;
 handle_call({slice_ticks, From, To}, _From, #state{ticks = Deals} = State) ->
@@ -289,7 +289,7 @@ extract_chunk_from_file(#file_data{file = Fd, leftover = Leftover,
 
 -spec extract_ticks_from_chunk(Chunk :: binary(), Last_tick_time :: integer()) -> Result
   when Result :: {[#tick_rec{}], Leftover :: binary(), Last_time :: integer()}.
-%% @doc processes chank or binary, extracts all the ticks and returns the extarcted ticks and
+%% @doc processes chunk or binary, extracts all the ticks and returns the extracted ticks and
 %%      the leftover that can't be processed. Ticks should be separated by "\r\n"
 extract_ticks_from_chunk(Chunk, Last_tick_time) ->
   Map_fun =
@@ -413,14 +413,14 @@ add_tick(#tick_rec{price = P, amount = A}, {#tick_rec{price = P_s, amount = A_s}
   {S#tick_rec{price = P_s + P, amount = A_s + A}, N + 1}.
 
 -spec decimate_ticks(Ticks :: [#tick_rec{}]) -> [#tick_rec{}].
-%% @doc decimates the tick list usin a mean value in a ?MEAN_SPAN interval
+%% @doc decimates the tick list using a mean value in a ?MEAN_SPAN interval
 decimate_ticks([]) ->
   [];
 decimate_ticks([#tick_rec{time = T_start} | _] = Ticks) ->
   Pred = gen_before_t_predicate(T_start + ?MEAN_SPAN),
   {L, Rest} = lists:splitwith(Pred, Ticks),
   {#tick_rec{price = P_s, amount = A_s}, N} =
-    lists:foldl(fun add_tick/2, {#tick_rec{price = 0, amount = 0}, 0}, L),
+    lists:foldl(fun add_tick/2, {#tick_rec{price = 0.0, amount = 0, time = 0}, 0}, L),
   [#tick_rec{price = P_s / N, amount = round(A_s / N), time = T_start} | decimate_ticks(Rest)].
 
 

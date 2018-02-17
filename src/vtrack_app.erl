@@ -27,9 +27,9 @@ start(_Type, _Args) ->
       ]
     }
   ]),
-  cowboy:start_http(my_http_listener, 100, [{port, 8080}],
-    [{env, [{dispatch, Dispatch}]}]
-  ),
+  {ok, _Pid} = cowboy:start_http(my_http_listener, 100, [{port, 8080}],
+                [{env, [{dispatch, Dispatch}]}]
+               ),
   vtrack_sup:start_link().
 
 stop(_State) ->
