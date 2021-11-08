@@ -3,9 +3,16 @@
   {vsn, "0.1.0"},
   {modules, []},
   {registered, []},
+  {included_applications,[
+    tapol,
+    observer,
+    runtime_tools,
+    wx
+  ]},
   {applications, [
     kernel,
     stdlib,
+    sasl,
     cowboy,
     jsx
   ]},

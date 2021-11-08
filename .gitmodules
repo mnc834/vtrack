@@ -1,6 +1,6 @@
 [submodule "apps/tapol"]
 	path = apps/tapol
-	url = https://github.com/mnc834/tapol.git
+	url = git@github.com:mnc834/tapol.git
 [submodule "priv/vjs"]
 	path = priv/vjs
-	url = https://github.com/mnc834/vjs.git
+	url = git@github.com:mnc834/vjs.git
