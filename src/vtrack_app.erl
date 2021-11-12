@@ -20,6 +20,7 @@ start(_Type, _Args) ->
         {"/lss", lss_handler, []},
 
         %%working with samples
+        {"/sample/open_file", sample_handler, [open_file]},
         {"/sample/next_chunk", sample_handler, [next_chunk]},
         {"/sample/indicators", sample_handler, [indicators]},
         {"/sample/test_interval", sample_handler, [test_interval]},

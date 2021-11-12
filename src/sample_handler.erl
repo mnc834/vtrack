@@ -10,9 +10,11 @@
 -export([terminate/3]).
 
 -record(state, {
-  operation :: next_chunk | indicators | test_interval | evaluate_interval
+  operation :: open_file | next_chunk | indicators | test_interval | evaluate_interval
 }).
 
+init(_, Req, [open_file]) ->
+  {ok, Req, #state{operation = open_file}};
 init(_, Req, [next_chunk]) ->
   {ok, Req, #state{operation = next_chunk}};
 init(_Type, Req, [indicators]) ->
@@ -22,6 +24,24 @@ init(_Type, Req, [test_interval]) ->
 init(_Type, Req, [evaluate_interval]) ->
   {ok, Req, #state{operation = evaluate_interval}}.
 
+handle(Req, State=#state{operation = open_file}) ->
+  Resp_hdr =
+    [
+      {<<"content-type">>, <<"text/plain">>}
+    ],
+  {Fname_bin, Req_1} = cowboy_req:qs_val(<<"filename">>, Req),
+
+  Resp =
+    case sample_track:open_file(binary_to_list(Fname_bin)) of
+      ok ->
+        #{status => ok};
+      {error, Reason} ->
+        #{status => error, error => Reason}
+    end,
+  Resp_body = jsx:encode(Resp),
+
+  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp, State};
 handle(Req, State=#state{operation = next_chunk}) ->
   Resp_hdr =
     [

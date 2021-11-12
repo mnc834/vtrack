@@ -86,8 +86,22 @@
         }
     };
 
+    var process_response = function () {};
 
-    function process_response(response)
+    function process_open_file_response(response)
+    {
+        switch (response.status)
+        {
+            case 'ok':
+                send_next_chunk_request();
+                break;
+            case 'error':
+                console.log("Failed to open file. Error: " + response.error);
+                break;
+        }
+    }
+
+    function process_next_chunk_response(response)
     {
         switch (response.status)
         {
@@ -98,11 +112,22 @@
             case 'eof':
                 console.log("End of file");
                 break;
+            case 'error':
+                console.log("Error: " + response.error);
+                break;
         }
+    }
+
+    function send_open_file_request(filename)
+    {
+        process_response = process_open_file_response;
+        xmlhttp.open("GET", url + "/open_file" + '?' + 'filename=' + filename, true);
+        xmlhttp.send();
     }
 
     function send_next_chunk_request()
     {
+        process_response = process_next_chunk_response;
         xmlhttp.open("GET", url + "/next_chunk", true);
         xmlhttp.send();
     }
@@ -574,7 +599,7 @@
     }
 
 
-    send_next_chunk_request();
+    send_open_file_request('RIM0.txt');
 
 </script>
 

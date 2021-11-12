@@ -11,7 +11,7 @@ init([]) ->
   Procs = [
     {
       sample_track,
-      {sample_track, start_link, ["RIM0.txt"]},
+      {sample_track, start_link, []},
       permanent,
       1,
       worker,

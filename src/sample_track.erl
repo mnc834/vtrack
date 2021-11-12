@@ -24,8 +24,9 @@
 -export_type([tick/0]).
 
 %% API
--export([start_link/1,
+-export([start_link/0,
   get_data/0,
+  open_file/1,
   read_next_chunk/0,
   slice_ticks/2,
   slice_ticks_after/1]).
@@ -47,13 +48,13 @@
 }).
 
 -record(file_data,{
-  file :: file:io_device() | undefined,
+  file = undefined :: file:io_device() | undefined,
   leftover = <<>> :: binary(),
   last_tick_time = undefined :: undefined | integer()
 }).
 
 -record(state, {
-  file_data :: #file_data{},
+  file_data = #file_data{} :: #file_data{},
   ticks = []:: [tick()]
 }).
 
@@ -67,21 +68,27 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(Fname :: string()) ->
+-spec(start_link() ->
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link(Fname) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [Fname], []).
+start_link() ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec get_data() -> {ok, [tick()]} | {error, Reason :: term()}.
 %% @doc return data that the sample track holds
 get_data() ->
   gen_server:call(?SERVER, get_data).
 
--spec read_next_chunk() -> {ok, [tick()]} | eof | {error, Reason :: term}.
+-spec open_file(Fname :: string()) -> ok | {error, Reason :: term()}.
+%% @doc opens a file with the given name in the configured directory
+%% and resets all the previous data.
+open_file(Fname) ->
+  gen_server:call(?SERVER, {open_file, Fname}).
+
+-spec read_next_chunk() -> {ok, [tick()]} | eof | {error, Reason :: term()}.
 %% @doc reads the next chunk of data from the file
 %% appends the data to the state list, returns the read data
 %% if no more data to read returns eof and closes the file
-%% returns error if read failes
+%% returns error if read fails
 read_next_chunk() ->
   gen_server:call(?SERVER, read_next_chunk).
 
@@ -112,28 +119,8 @@ slice_ticks_after(From) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Fname]) ->
-  %% opening the file
-  Result =
-    case application:get_env(tick_samples_dir) of
-      {ok, Dir} ->
-        Full_path = Dir ++ "/" ++ Fname,
-        case file:open(Full_path, [read, binary]) of
-          {ok, Fd} ->
-            {ok, #state{file_data = #file_data{file = Fd}}};
-          {error, Reason} ->
-            {error, {open_file_failed, Full_path, Reason}}
-        end;
-      undefined ->
-        {error, {getting_tick_samples_dir_failed}}
-    end,
-  case Result of
-    {ok, #state{}} ->
-      Result;
-    {error, _} ->
-      {stop, Result}
-  end.
-
+init([]) ->
+  {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -154,6 +141,22 @@ handle_call(get_data, _From, #state{ticks = []} = State) ->
   {reply, {error, data_is_not_initialized}, State};
 handle_call(get_data, _From, #state{ticks = Deals} = State) ->
   {reply, {ok, Deals}, State};
+handle_call({open_file, Fname}, _From, #state{file_data = #file_data{file = undefined}}) ->
+  %% openning the file
+  case local_open_file(Fname) of
+    {ok, Fd} ->
+      {reply, ok, #state{file_data = #file_data{file = Fd}}};
+    Error ->
+      {reply, Error, #state{}}
+  end;
+handle_call({open_file, Fname}, From, #state{file_data = File_data} = State) ->
+  %% closing the file first
+  case local_close_file(File_data) of
+    {ok, New_file_data} ->
+      handle_call({open_file, Fname}, From, State#state{file_data = New_file_data});
+    Error ->
+      {reply, Error, #state{file_data = #file_data{}}}
+  end;
 handle_call(read_next_chunk, _From, #state{file_data = #file_data{file = undefined}} = State) ->
   {reply, {error, file_is_closed}, State};
 handle_call(read_next_chunk, _From, #state{file_data = File_data, ticks = Deals} = State) ->
@@ -169,9 +172,8 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, ticks = Deals}
       {reply, {ok, Deals_chunk}, New_state};
     Result ->
       %%either eof or {error, Error}
-      #file_data{file = Fd} = File_data,
-      ok = file:close(Fd),
-      {reply, Result, State#state{file_data = File_data#file_data{file = undefined}}}
+      {ok, New_file_Data} = local_close_file(File_data),
+      {reply, Result, State#state{file_data = New_file_Data}}
   end;
 handle_call({slice_ticks, From, To}, _From, #state{ticks = Deals} = State) ->
   From_pred = gen_before_t_predicate(From),
@@ -423,6 +425,26 @@ decimate_ticks([#tick_rec{time = T_start} | _] = Ticks) ->
     lists:foldl(fun add_tick/2, {#tick_rec{price = 0.0, amount = 0, time = 0}, 0}, L),
   [#tick_rec{price = P_s / N, amount = round(A_s / N), time = T_start} | decimate_ticks(Rest)].
 
+-spec local_open_file(string()) -> {ok, file:io_device()} | {error, Reason :: term()}.
+%% @doc opens a file with the given name
+local_open_file(Fname) ->
+  case application:get_env(tick_samples_dir) of
+    {ok, Dir} ->
+      Full_path = Dir ++ "/" ++ Fname,
+      file:open(Full_path, [read, binary]);
+    undefined ->
+      {error, {getting_tick_samples_dir_failed}}
+  end.
+
+-spec local_close_file(#file_data{}) -> {ok, #file_data{}} | {error, Reason :: term()}.
+%% @doc closes the file and resets file data
+local_close_file(#file_data{file = Fd}) ->
+  case file:close(Fd) of
+    ok ->
+      {ok, #file_data{}};
+    Error ->
+      Error
+  end.
 
 -ifdef(TEST).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
