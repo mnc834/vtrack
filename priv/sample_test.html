@@ -24,6 +24,13 @@
     Your browser does not support the HTML5 canvas tag.</canvas>
 
 <div id="panel">
+    <label for="file_selector">Select securities:</label>
+    <select id="file_selector" onchange="select_file()">
+        <option value="-1" selected="selected">--</option>
+    </select>
+
+    <p>
+
     <div> mean </div>
     <label for="mean_span">span (sec)</label>
     <input type="text" id="mean_span" value="3 * 24 * 60 * 60">
@@ -70,6 +77,7 @@
     var url = "sample";
 
     var canvas = document.getElementById("Canvas");
+    var file_selector = document.getElementById("file_selector");
     var test_interval_button = document.getElementById("test_interval");
     var evaluate_interval_button = document.getElementById("evaluate_interval");
     var direction_elements = document.getElementById("direction").elements;
@@ -87,6 +95,19 @@
     };
 
     var process_response = function () {};
+
+    function process_read_catalog_response(response)
+    {
+        switch (response.status)
+        {
+            case 'ok':
+                process_catalog(response.catalog);
+                break;
+            case 'error':
+                console.log("Failed to read the catalog. Error: " + response.error);
+                break;
+        }
+    }
 
     function process_open_file_response(response)
     {
@@ -118,6 +139,13 @@
         }
     }
 
+    function send_read_catalog_request()
+    {
+        process_response = process_read_catalog_response;
+        xmlhttp.open("GET", url + "/read_catalog", true);
+        xmlhttp.send();
+    }
+
     function send_open_file_request(filename)
     {
         process_response = process_open_file_response;
@@ -130,6 +158,35 @@
         process_response = process_next_chunk_response;
         xmlhttp.open("GET", url + "/next_chunk", true);
         xmlhttp.send();
+    }
+
+    var list_of_files;
+
+    function process_catalog(catalog)
+    {
+        var n = catalog.length;
+        list_of_files = new Array(n);
+        for (i = 0; i < n; i++)
+        {
+            var new_select = document.createElement('option');
+            new_select.value = i;
+            new_select.text = catalog[i].file_name;
+            file_selector.appendChild(new_select);
+            list_of_files[i] = {file_name: catalog[i].file_name};
+        }
+    }
+
+    function select_file()
+    {
+        var index = file_selector.value;
+        if ((index >= 0) && (index < list_of_files.length))
+        {
+            send_open_file_request(list_of_files[index].file_name);
+        }
+        else
+        {
+            console.log("select_file(): invalid index " + index);
+        }
     }
 
     var correct_time;
@@ -598,8 +655,7 @@
         xmlhttp.send();
     }
 
-
-    send_open_file_request('RIM0.txt');
+    send_read_catalog_request();
 
 </script>
 

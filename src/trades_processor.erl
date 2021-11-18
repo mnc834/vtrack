@@ -14,7 +14,7 @@
 -endif.
 
 %% API
--export([extract_ticks_from_chunk/2]).
+-export([ticks_map_fun/2]).
 
 -export_type([tick/0, ticks/0]).
 
@@ -27,44 +27,20 @@
 -type last_tick_time() :: undefined | integer().
 %% @doc time of the last trade
 
--spec extract_ticks_from_chunk(file_reader:file_chunk(), last_tick_time()) -> Result
-  when Result :: {ok, ticks(), file_reader:file_chunk(), last_tick_time()}.
-%% @doc processes chunk or binary, extracts all the ticks and returns the extracted ticks and
-%%      the leftover that can't be processed. Ticks should be separated by "\r\n"
-extract_ticks_from_chunk(Chunk, Last_tick_time) ->
-  Map_fun =
-    fun(Bin_str, {Prev_time, <<>>}) ->
-      case binary:split(Bin_str, [<<";">>, <<"\r">>], [global]) of
-        [_Code, _Contract, Price_str, Amount_str, Dat_time_str, _Trade_id, _Nosystem, <<>>] ->
-          Price = binary_to_float(Price_str),
-          Amount = binary_to_integer(Amount_str),
-          Time = dat_time_str_to_milliseconds(Dat_time_str, Prev_time),
-          {#{price => Price, amount => Amount, time => Time}, {Time, <<>>}};
-        _ ->
-          {Bin_str, {Prev_time, Bin_str}}
-      end
-    end,
-
-  Bin_list = binary:split(<<Chunk/bits>>, <<"\n">>, [global, trim]),
-  Trimmed_bin_list =
-    case Bin_list of
-      [<<>> | Tail] ->
-        Tail;
+-spec ticks_map_fun(file_reader:file_chunk(), last_tick_time()) -> Result
+  when Result :: {{true, tick()} | false, Leftover :: file_reader:file_chunk(), last_tick_time()}.
+%% @doc processes a binary line, extracts a tick and returns the extracted tick or leftover
+%% that can't be processed and last tick's time.
+ticks_map_fun(Chunk, Last_tick_time) ->
+    case binary:split(Chunk, [<<";">>], [global]) of
+      [_Code, _Contract, Price_str, Amount_str, Dat_time_str, _Trade_id, _Nosystem] ->
+        Price = binary_to_float(Price_str),
+        Amount = binary_to_integer(Amount_str),
+        Time = dat_time_str_to_milliseconds(Dat_time_str, Last_tick_time),
+        {{true, #{price => Price, amount => Amount, time => Time}}, <<>>, Time};
       _ ->
-        Bin_list
-    end,
-  {Data, {Time, Leftover}} = lists:mapfoldl(Map_fun, {Last_tick_time, <<>>}, Trimmed_bin_list),
-  Ticks =
-    case Leftover of
-      <<>> ->
-        %%the read chunk is processed without left over
-        Data;
-      _ ->
-        %%the last element of the list is new leftover and should be removed
-        {V, _} = lists:split(length(Data) - 1, Data),
-        V
-    end,
-  {ok, Ticks, Leftover, Time}.
+        {false, Chunk, Last_tick_time}
+    end.
 
 %%%===================================================================
 %%% Internal functions
@@ -135,7 +111,7 @@ dat_time_str_to_milliseconds(Bin_str, Prev_time) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%% unit tests
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-dat_time_str_to_miliseconds_test_() ->
+dat_time_str_to_milliseconds_test_() ->
   T_bin_1 =  <<"2010-01-11 10:30:00.080">>,
   T_bin_2 = <<"11.01.2010 10:30">>,
 
@@ -151,7 +127,7 @@ dat_time_str_to_miliseconds_test_() ->
     ?_assertEqual(true, is_integer(Res_4) andalso Res_4 > 0)
   ].
 
-extract_ticks_from_chunk_test_() ->
+ticks_map_fun_test_() ->
   P = 100.0,
   P_bin = float_to_binary(P),
 
@@ -161,27 +137,17 @@ extract_ticks_from_chunk_test_() ->
   S_prefix = <<"RIH0;RTS-3.10;">>,
   S_suffix = <<";1;", T_bin/bits, ";129633008;0">>,
   S1 = <<S_prefix/bits, P_bin/bits, S_suffix/bits>>,
-  {ok, [#{price := P}], Res_1, T} = extract_ticks_from_chunk(<<S1/bits, "\r">>, 0),
-  {ok, [#{price := P1}], Res_2, T} = extract_ticks_from_chunk(<<S1/bits, "\r\n">>, 0),
 
-  {ok, [], Res_3, 0} = extract_ticks_from_chunk(S_prefix, 0),
-  {ok, [#{price := P1}], Res_4, T} = extract_ticks_from_chunk(<<S1/bits, "\r\n", S_prefix/bits>>, 0),
-  {ok, [], Res_5, 0} = extract_ticks_from_chunk(S1, 0),
-  {ok, [], Res_6, 0} = extract_ticks_from_chunk(<<"\n", S1/bits>>, 0),
-  {ok, [], Res_7, 0} = extract_ticks_from_chunk(<<>>, 0),
-  {ok, [], Res_8, 0} = extract_ticks_from_chunk(<<"\n">>, 0),
-  {ok, [], Res_9, 0} = extract_ticks_from_chunk(<<"\r\n">>, 0),
+  {{true, #{price := P}}, Res_1, T} = ticks_map_fun(<<S1/bits>>, 0),
+  {false, Res_2, 0} = ticks_map_fun(S_prefix, 0),
+  {{true, #{price := P1}}, Res_3, T} = ticks_map_fun(S1, 0),
+  {false, Res_4, 0} = ticks_map_fun(<<>>, 0),
 
   [
     ?_assertEqual(<<>>, Res_1),
-    ?_assertEqual(<<>>, Res_2),
-    ?_assertEqual(S_prefix, Res_3),
-    ?_assertEqual(S_prefix, Res_4),
-    ?_assertEqual(S1, Res_5),
-    ?_assertEqual(S1, Res_6),
-    ?_assertEqual(<<>>, Res_7),
-    ?_assertEqual(<<>>, Res_8),
-    ?_assertEqual(<<"\r">>, Res_9)
+    ?_assertEqual(S_prefix, Res_2),
+    ?_assertEqual(<<>>, Res_3),
+    ?_assertEqual(<<>>, Res_4)
   ].
 
 -endif.

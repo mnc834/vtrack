@@ -1,6 +1,9 @@
 -module(sample_handler).
 -behaviour(cowboy_http_handler).
 
+-define(CATALOG_NAME, "CATALOG.txt").
+-define(RESPONSE_HDRS, [{<<"content-type">>, <<"text/plain">>}]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -10,9 +13,11 @@
 -export([terminate/3]).
 
 -record(state, {
-  operation :: open_file | next_chunk | indicators | test_interval | evaluate_interval
+  operation :: read_catalog | open_file | next_chunk | indicators | test_interval | evaluate_interval
 }).
 
+init(_, Req, [read_catalog]) ->
+  {ok, Req, #state{operation = read_catalog}};
 init(_, Req, [open_file]) ->
   {ok, Req, #state{operation = open_file}};
 init(_, Req, [next_chunk]) ->
@@ -24,11 +29,20 @@ init(_Type, Req, [test_interval]) ->
 init(_Type, Req, [evaluate_interval]) ->
   {ok, Req, #state{operation = evaluate_interval}}.
 
+handle(Req, State=#state{operation = read_catalog}) ->
+  Resp =
+    case sample_track:read_catalog(?CATALOG_NAME) of
+      {ok, Catalog} ->
+        #{status => ok, catalog => Catalog};
+      {error, Reason} ->
+        #{status => error, error => Reason}
+    end,
+  Resp_body = jsx:encode(Resp),
+
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req),
+  {ok, Req_resp, State};
+
 handle(Req, State=#state{operation = open_file}) ->
-  Resp_hdr =
-    [
-      {<<"content-type">>, <<"text/plain">>}
-    ],
   {Fname_bin, Req_1} = cowboy_req:qs_val(<<"filename">>, Req),
 
   Resp =
@@ -40,14 +54,9 @@ handle(Req, State=#state{operation = open_file}) ->
     end,
   Resp_body = jsx:encode(Resp),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
   {ok, Req_resp, State};
 handle(Req, State=#state{operation = next_chunk}) ->
-  Resp_hdr =
-    [
-      {<<"content-type">>, <<"text/plain">>}
-    ],
-
   Resp =
     case sample_track:read_next_chunk() of
       {ok, Data} ->
@@ -59,14 +68,9 @@ handle(Req, State=#state{operation = next_chunk}) ->
     end,
   Resp_body = jsx:encode(Resp),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req),
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req),
   {ok, Req_resp, State};
 handle(Req, State=#state{operation = indicators}) ->
-  Resp_hdr =
-    [
-      {<<"content-type">>, <<"text/plain">>}
-    ],
-
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
   #{x_shift := X_shift, y_shift := Y_shift, polynomials := Polynomials} = Query,
@@ -85,14 +89,9 @@ handle(Req, State=#state{operation = indicators}) ->
   Resp = lists:map(Map_fun, Polynomials),
   Resp_body = jsx:encode(Resp),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
   {ok, Req_resp, State};
 handle(Req, State=#state{operation = test_interval}) ->
-  Resp_hdr =
-    [
-      {<<"content-type">>, <<"text/plain">>}
-    ],
-
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
   #{
@@ -168,15 +167,10 @@ handle(Req, State=#state{operation = test_interval}) ->
   Resp = #{status => ok, short_list => Short_v, long_list => Long_v},
   Resp_body = jsx:encode(Resp),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
   {ok, Req_resp, State};
 
 handle(Req, State=#state{operation = evaluate_interval}) ->
-  Resp_hdr =
-    [
-      {<<"content-type">>, <<"text/plain">>}
-    ],
-
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
   #{
@@ -327,7 +321,7 @@ handle(Req, State=#state{operation = evaluate_interval}) ->
 
   Resp_body = jsx:encode(Resp),
 
-  {ok, Req_resp} = cowboy_req:reply(200, Resp_hdr, Resp_body, Req_1),
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
   {ok, Req_resp, State}.
 
 terminate(_Reason, _Req, _State) ->

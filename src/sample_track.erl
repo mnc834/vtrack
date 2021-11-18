@@ -11,10 +11,11 @@
 
 -behaviour(gen_server).
 
--define(MEAN_SPAN, 60000).   %%in miliseconds
+-define(MEAN_SPAN, 60000).   %%in milliseconds
 
 %% API
 -export([start_link/0,
+  read_catalog/1,
   get_data/0,
   open_file/1,
   read_next_chunk/0,
@@ -35,7 +36,8 @@
 
 -record(state, {
   file_data = undefined :: file_reader:file_reader_data() | undefined,
-  ticks = []:: ticks()
+  file_directory = [] :: string(),
+  ticks = [] :: ticks()
 }).
 
 %%%===================================================================
@@ -57,6 +59,11 @@ start_link() ->
 %% @doc return data that the sample track holds
 get_data() ->
   gen_server:call(?SERVER, get_data).
+
+-spec read_catalog(Fname :: string()) -> {ok, catalog_processor:catalog()} | {error, Reason :: term()}.
+%% @doc read the catalog from the given file
+read_catalog(Fname) ->
+  gen_server:call(?SERVER, {read_catalog, Fname}).
 
 -spec open_file(Fname :: string()) -> ok | {error, Reason :: term()}.
 %% @doc opens a file with the given name in the configured directory
@@ -100,7 +107,13 @@ slice_ticks_after(From) ->
   {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([]) ->
-  {ok, #state{}}.
+  case application:get_env(tick_samples_dir) of
+    {ok, Dir} ->
+      {ok, #state{file_directory = Dir}};
+    undefined ->
+      {stop, {getting_tick_samples_dir_failed}}
+  end.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -121,20 +134,36 @@ handle_call(get_data, _From, #state{ticks = []} = State) ->
   {reply, {error, data_is_not_initialized}, State};
 handle_call(get_data, _From, #state{ticks = Deals} = State) ->
   {reply, {ok, Deals}, State};
-handle_call({open_file, Fname}, _From, #state{file_data = undefined}) ->
+handle_call({read_catalog, Fname}, _From, #state{file_directory = Dir} = State) ->
   %% openning the file
-  case application:get_env(tick_samples_dir) of
-    {ok, Dir} ->
-      Full_path = Dir ++ "/" ++ Fname,
-      case file_reader:open_file(Full_path, fun trades_processor:extract_ticks_from_chunk/2) of
-        {ok, File_data} ->
-          {reply, ok, #state{file_data = File_data}};
-        Error ->
-          {reply, Error, #state{}}
-      end;
-    undefined ->
-      {error, {getting_tick_samples_dir_failed}}
+  Full_path = Dir ++ "/" ++ Fname,
+  case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun catalog_processor:catalog_map_fun/2)) of
+    {ok, File_data} ->
+      Read_fun = fun F(Data, Acc) ->
+                   case  file_reader:read_next_chunk(Data) of
+                     {ok, Catalog_entries, New_file_data} ->
+                       F(New_file_data, Acc ++ Catalog_entries);
+                     eof ->
+                       {{ok, Acc}, Data};
+                     {error, Reason} ->
+                       {{error, Reason}, Data}
+                   end
+                 end,
+      {Reply, New_file_data} = Read_fun(File_data, []),
+      ok = file_reader:close_file(New_file_data),
+      {reply, Reply, State};
+    Reason ->
+      {reply, Reason, State}
   end;
+handle_call({open_file, Fname}, _From, #state{file_data = undefined, file_directory = Dir} = State) ->
+  %% openning the file
+    Full_path = Dir ++ "/" ++ Fname,
+    case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun trades_processor:ticks_map_fun/2)) of
+      {ok, File_data} ->
+        {reply, ok, State#state{file_data = File_data, ticks = []}};
+      Reason ->
+        {reply, Reason, State}
+    end;
 handle_call({open_file, Fname}, From, #state{file_data = File_data} = State) ->
   %% closing the file first
   case file_reader:close_file(File_data) of
