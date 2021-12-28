@@ -34,9 +34,12 @@
 
 -type ticks() :: trades_processor:ticks().
 
+-type catalog() :: catalog_processor:catalog().
+
 -record(state, {
   file_data = undefined :: file_reader:file_reader_data() | undefined,
   file_directory = [] :: string(),
+  catalog = undefined :: catalog() | undefined,
   ticks = [] :: ticks()
 }).
 
@@ -60,13 +63,13 @@ start_link() ->
 get_data() ->
   gen_server:call(?SERVER, get_data).
 
--spec read_catalog(Fname :: string()) -> {ok, catalog_processor:catalog()} | {error, Reason :: term()}.
+-spec read_catalog(Fname :: string()) -> {ok, catalog()} | {error, Reason :: term()}.
 %% @doc read the catalog from the given file
 read_catalog(Fname) ->
   gen_server:call(?SERVER, {read_catalog, Fname}).
 
--spec open_file(Fname :: string()) -> ok | {error, Reason :: term()}.
-%% @doc opens a file with the given name in the configured directory
+-spec open_file(Name :: string()) -> {ok, catalog_processor:data_type()} | {error, Reason :: term()}.
+%% @doc opens a file for the given security name in the configured directory
 %% and resets all the previous data.
 open_file(Fname) ->
   gen_server:call(?SERVER, {open_file, Fname}).
@@ -149,21 +152,25 @@ handle_call({read_catalog, Fname}, _From, #state{file_directory = Dir} = State) 
                        {{error, Reason}, Data}
                    end
                  end,
-      {Reply, New_file_data} = Read_fun(File_data, []),
+      {{ok, Catalog} = Reply, New_file_data} = Read_fun(File_data, []),
       ok = file_reader:close_file(New_file_data),
-      {reply, Reply, State};
+      {reply, Reply, State#state{catalog = Catalog}};
     Reason ->
       {reply, Reason, State}
   end;
-handle_call({open_file, Fname}, _From, #state{file_data = undefined, file_directory = Dir} = State) ->
-  %% openning the file
-    Full_path = Dir ++ "/" ++ Fname,
-    case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun trades_processor:ticks_map_fun/2)) of
-      {ok, File_data} ->
-        {reply, ok, State#state{file_data = File_data, ticks = []}};
-      Reason ->
-        {reply, Reason, State}
-    end;
+handle_call({open_file, _Fname}, _From, #state{catalog = undefined} = State) ->
+  {reply, {error, no_catalog_read}, State};
+handle_call({open_file, Fname}, _From, #state{file_data = undefined, file_directory = Dir, catalog = Catalog} = State) ->
+  %% looking for a catalog entry
+  [#{file_name := File_name, type := Type}] = lists:filter(fun(#{name := Name}) when Name =:= Fname -> true; (_) -> false end, Catalog),
+  %% opening the file
+  Full_path = Dir ++ "/" ++ File_name,
+  case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun trades_processor:ticks_map_fun/2)) of
+    {ok, File_data} ->
+      {reply, {ok, Type}, State#state{file_data = File_data, ticks = []}};
+    Reason ->
+      {reply, Reason, State}
+  end;
 handle_call({open_file, Fname}, From, #state{file_data = File_data} = State) ->
   %% closing the file first
   case file_reader:close_file(File_data) of

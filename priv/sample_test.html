@@ -24,8 +24,8 @@
     Your browser does not support the HTML5 canvas tag.</canvas>
 
 <div id="panel">
-    <label for="file_selector">Select securities:</label>
-    <select id="file_selector" onchange="select_file()">
+    <label for="security_selector">Select security:</label>
+    <select id="security_selector" onchange="select_security()">
         <option value="-1" selected="selected">--</option>
     </select>
 
@@ -77,7 +77,7 @@
     var url = "sample";
 
     var canvas = document.getElementById("Canvas");
-    var file_selector = document.getElementById("file_selector");
+    var security_selector = document.getElementById("security_selector");
     var test_interval_button = document.getElementById("test_interval");
     var evaluate_interval_button = document.getElementById("evaluate_interval");
     var direction_elements = document.getElementById("direction").elements;
@@ -114,6 +114,7 @@
         switch (response.status)
         {
             case 'ok':
+                console.log("Type: " + response.type);
                 send_next_chunk_request();
                 break;
             case 'error':
@@ -146,10 +147,10 @@
         xmlhttp.send();
     }
 
-    function send_open_file_request(filename)
+    function send_open_file_request(name)
     {
         process_response = process_open_file_response;
-        xmlhttp.open("GET", url + "/open_file" + '?' + 'filename=' + filename, true);
+        xmlhttp.open("GET", url + "/open_file" + '?' + 'symbol=' + name, true);
         xmlhttp.send();
     }
 
@@ -160,32 +161,33 @@
         xmlhttp.send();
     }
 
-    var list_of_files;
+    var list_of_symbols;
 
     function process_catalog(catalog)
     {
         var n = catalog.length;
-        list_of_files = new Array(n);
+        list_of_symbols = new Array(n);
         for (i = 0; i < n; i++)
         {
+            let name = catalog[i].name
             var new_select = document.createElement('option');
             new_select.value = i;
-            new_select.text = catalog[i].file_name;
-            file_selector.appendChild(new_select);
-            list_of_files[i] = {file_name: catalog[i].file_name};
+            new_select.text = name;
+            security_selector.appendChild(new_select);
+            list_of_symbols[i] = {name: name};
         }
     }
 
-    function select_file()
+    function select_security()
     {
-        var index = file_selector.value;
-        if ((index >= 0) && (index < list_of_files.length))
+        var index = security_selector.value;
+        if ((index >= 0) && (index < list_of_symbols.length))
         {
-            send_open_file_request(list_of_files[index].file_name);
+            send_open_file_request(list_of_symbols[index].name);
         }
         else
         {
-            console.log("select_file(): invalid index " + index);
+            console.log("select_security(): invalid index " + index);
         }
     }
 

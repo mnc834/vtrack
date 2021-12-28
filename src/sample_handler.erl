@@ -33,7 +33,9 @@ handle(Req, State=#state{operation = read_catalog}) ->
   Resp =
     case sample_track:read_catalog(?CATALOG_NAME) of
       {ok, Catalog} ->
-        #{status => ok, catalog => Catalog};
+        %% only names of sequrities are sent in the response
+        Resp_catalog = lists:map(fun(#{name := Name}) -> #{name => list_to_binary(Name)} end, Catalog),
+        #{status => ok, catalog => Resp_catalog};
       {error, Reason} ->
         #{status => error, error => Reason}
     end,
@@ -43,12 +45,12 @@ handle(Req, State=#state{operation = read_catalog}) ->
   {ok, Req_resp, State};
 
 handle(Req, State=#state{operation = open_file}) ->
-  {Fname_bin, Req_1} = cowboy_req:qs_val(<<"filename">>, Req),
+  {Name_bin, Req_1} = cowboy_req:qs_val(<<"symbol">>, Req),
 
   Resp =
-    case sample_track:open_file(binary_to_list(Fname_bin)) of
-      ok ->
-        #{status => ok};
+    case sample_track:open_file(binary_to_list(Name_bin)) of
+      {ok, Type} ->
+        #{status => ok, type => Type};
       {error, Reason} ->
         #{status => error, error => Reason}
     end,
