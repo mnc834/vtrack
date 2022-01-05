@@ -33,6 +33,7 @@
 -define(SERVER, ?MODULE).
 
 -type ticks() :: trades_processor:ticks().
+-type candles() :: candles_processor:candles().
 
 -type catalog() :: catalog_processor:catalog().
 
@@ -40,7 +41,8 @@
   file_data = undefined :: file_reader:file_reader_data() | undefined,
   file_directory = [] :: string(),
   catalog = undefined :: catalog() | undefined,
-  ticks = [] :: ticks()
+  data_type = undefined :: catalog_processor:data_type() | undefined,
+  data = [] :: ticks() | candles()
 }).
 
 %%%===================================================================
@@ -133,12 +135,12 @@ init([]) ->
   {noreply, NewState :: #state{}, timeout() | hibernate} |
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
-handle_call(get_data, _From, #state{ticks = []} = State) ->
+handle_call(get_data, _From, #state{data = []} = State) ->
   {reply, {error, data_is_not_initialized}, State};
-handle_call(get_data, _From, #state{ticks = Deals} = State) ->
-  {reply, {ok, Deals}, State};
+handle_call(get_data, _From, #state{data = Data} = State) ->
+  {reply, {ok, Data}, State};
 handle_call({read_catalog, Fname}, _From, #state{file_directory = Dir} = State) ->
-  %% openning the file
+  %% opening the file
   Full_path = Dir ++ "/" ++ Fname,
   case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun catalog_processor:catalog_map_fun/2)) of
     {ok, File_data} ->
@@ -165,9 +167,16 @@ handle_call({open_file, Fname}, _From, #state{file_data = undefined, file_direct
   [#{file_name := File_name, type := Type}] = lists:filter(fun(#{name := Name}) when Name =:= Fname -> true; (_) -> false end, Catalog),
   %% opening the file
   Full_path = Dir ++ "/" ++ File_name,
-  case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(fun trades_processor:ticks_map_fun/2)) of
+  Map_fun =
+    case Type of
+      trades ->
+        fun trades_processor:ticks_map_fun/2;
+      candles ->
+        fun candles_processor:candle_map_fun/2
+    end,
+  case file_reader:open_file(Full_path, file_reader:generate_line_file_processor(Map_fun)) of
     {ok, File_data} ->
-      {reply, {ok, Type}, State#state{file_data = File_data, ticks = []}};
+      {reply, {ok, Type}, State#state{file_data = File_data, data_type = Type, data = []}};
     Reason ->
       {reply, Reason, State}
   end;
@@ -181,28 +190,35 @@ handle_call({open_file, Fname}, From, #state{file_data = File_data} = State) ->
   end;
 handle_call(read_next_chunk, _From, #state{file_data = undefined} = State) ->
   {reply, {error, file_is_closed}, State};
-handle_call(read_next_chunk, _From, #state{file_data = File_data, ticks = Deals} = State) ->
+handle_call(read_next_chunk, _From, #state{file_data = File_data, data_type = Type, data = Data} = State) ->
   case file_reader:read_next_chunk(File_data) of
     {ok, Chunk, New_file_data} ->
-      Dec_chunk = decimate_ticks(Chunk),
+      Processed_data =
+        case Type of
+          trades ->
+            decimate_ticks(Chunk);
+          candles ->
+            %%[#{price => P , amount => V, time => T} || #{close_price := P, volume := V, close_time := T} <- Chunk]
+            Chunk
+        end,
       New_state =
         State#state{
-          ticks = Deals ++ Dec_chunk,
+          data = Data ++ Processed_data,
           file_data = New_file_data
         },
-      {reply, {ok, Dec_chunk}, New_state};
+      {reply, {ok, Processed_data}, New_state};
     Result ->
       %%either eof or {error, Error}
       ok  = file_reader:close_file(File_data),
       {reply, Result, State#state{file_data = undefined}}
   end;
-handle_call({slice_ticks, From, To}, _From, #state{ticks = Deals} = State) ->
+handle_call({slice_ticks, From, To}, _From, #state{data = Deals} = State) ->
   From_pred = gen_before_t_predicate(From),
   To_pred = gen_before_t_predicate(To),
   L_1 = lists:dropwhile(From_pred, Deals),
   L = lists:takewhile(To_pred, L_1),
   {reply, L, State};
-handle_call({slice_ticks_after, From}, _From, #state{ticks = Deals} = State) ->
+handle_call({slice_ticks_after, From}, _From, #state{data = Deals} = State) ->
   From_pred = gen_before_t_predicate(From),
   L = lists:dropwhile(From_pred, Deals),
   {reply, L, State}.

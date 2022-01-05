@@ -18,13 +18,13 @@
 
 -export_type([tick/0, ticks/0]).
 
--type tick() :: #{price := float(), amount := integer(), time := integer()}.
+-type tick() :: #{price := float(), amount := integer(), time := times:time()}.
 %% @doc a single trade
 
 -type ticks() :: [tick()].
 %% @doc a list of trades
 
--type last_tick_time() :: undefined | integer().
+-type last_tick_time() :: undefined | times:time().
 %% @doc time of the last trade
 
 -spec ticks_map_fun(file_reader:file_chunk(), last_tick_time()) -> Result
@@ -46,10 +46,10 @@ ticks_map_fun(Chunk, Last_tick_time) ->
 %%% Internal functions
 %%%===================================================================
 
--spec dat_time_str_to_milliseconds(Bin_str :: binary(), Prev_time :: integer() | undefined) -> integer().
+-spec dat_time_str_to_milliseconds(Bin_str :: binary(), Prev_time :: times:time() | undefined) -> times:time().
 %% @doc 1)converts string of the following format:
 %%           YYYY-MM-DD HH:MM:SS<.milisec>
-%%        into a number of miliseconds from 1st Jan 1970
+%%        into a number of milliseconds from 1st Jan 1970
 %%      2) if Bin_str contains the following format:
 %%           DD.MM.YYYY HH:MM
 %%         and Prev_time =:= undefined
@@ -97,12 +97,7 @@ dat_time_str_to_milliseconds(Bin_str, Prev_time) ->
         [binary_to_integer(X) ||
           X <- Str_list],
       Date_time = {{Year, Month, Day}, {Hour, Min, Sec}},
-      Sec_since_0 = calendar:datetime_to_gregorian_seconds(Date_time),
-      %%have to extract the seconds for 1970 Jan 1st and
-      Seconds_since_1790 = Sec_since_0 -
-        calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
-      %%and add milliseconds
-      Seconds_since_1790 * 1000 + Msec;
+      times:to_milliseconds_since_1970(Date_time, Msec);
     {error, _Reson} ->
       Prev_time
   end.
@@ -140,7 +135,7 @@ ticks_map_fun_test_() ->
 
   {{true, #{price := P}}, Res_1, T} = ticks_map_fun(<<S1/bits>>, 0),
   {false, Res_2, 0} = ticks_map_fun(S_prefix, 0),
-  {{true, #{price := P1}}, Res_3, T} = ticks_map_fun(S1, 0),
+  {{true, #{price := P}}, Res_3, T} = ticks_map_fun(S1, 0),
   {false, Res_4, 0} = ticks_map_fun(<<>>, 0),
 
   [

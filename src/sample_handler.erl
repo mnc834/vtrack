@@ -62,7 +62,7 @@ handle(Req, State=#state{operation = next_chunk}) ->
   Resp =
     case sample_track:read_next_chunk() of
       {ok, Data} ->
-        #{status => ok, ticks => Data};
+        #{status => ok, data => Data};
       eof ->
         #{status => eof};
       {error, Reason} ->

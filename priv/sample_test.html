@@ -115,6 +115,7 @@
         {
             case 'ok':
                 console.log("Type: " + response.type);
+                select_data_processors(response.type);
                 send_next_chunk_request();
                 break;
             case 'error':
@@ -128,8 +129,8 @@
         switch (response.status)
         {
             case 'ok':
-                var ticks = response.ticks;
-                add_ticks(ticks);
+                var data = response.data;
+                add_data(data);
                 break;
             case 'eof':
                 console.log("End of file");
@@ -195,23 +196,74 @@
     var correct_val;
     var convert_time;
     var convert_val;
+    var convert_item;
 
-    var convert_ticks = function(ticks)
+    function convert_trade(trade)
     {
-        var n = ticks.length;
+        return {x: convert_time(trade.time), y: convert_val(trade.price)};
+    };
+
+    function convert_candle(candle)
+    {
+        var time = convert_time(candle.close_time);
+        var close_price = convert_val(candle.close_price);
+        return {
+                    time: time,
+                    open: convert_val(candle.open_price),
+                    high: convert_val(candle.day_high),
+                    low: convert_val(candle.day_low),
+                    close: close_price,
+                    x: time, // for compatibility with trades
+                    y: close_price, // for compatibility with trades
+                };
+    };
+
+    function convert_data(list)
+    {
+        var n = list.length;
         var v = new Array(n);
         var i;
         for (i = 0; i < n; i++)
         {
-            v[i] = {x: convert_time(ticks[i].time), y: convert_val(ticks[i].price)};
+            v[i] = convert_item(list[i]);
         }
         return v;
     };
 
-    var add_ticks = function(ticks)
+    function create_g_list(trades)
     {
-        var t0 = ticks[0].time;
-        var p0 = ticks[0].price;
+        return new G_sample_list(trades, "#FF0000");
+    }
+
+    function create_g_candles(candles)
+    {
+        return new G_candles(candles);
+    }
+
+    var create_g_data_object;
+
+    function select_data_processors(type)
+    {
+        switch (type)
+        {
+            case 'trades':
+                convert_item = convert_trade;
+                create_g_data_object = create_g_list;
+                break;
+            case 'candles':
+                convert_item = convert_candle;
+                create_g_data_object = create_g_candles;
+                break;
+            default:
+                console.log("Error: unsupported type: " + type);
+                break;
+        }
+    }
+
+    var add_data = function(data)
+    {
+        var t0 = 0;
+        var p0 = 0;
 
         correct_time = function(time)
         {
@@ -233,6 +285,10 @@
             return val - p0
         };
 
+        var item = convert_item(data[0]);
+        t0 = item.x;
+        p0 = item.y;
+
         var max;
         var min;
         var delta;
@@ -240,7 +296,7 @@
         function process_point(v)
         {
             update_delta(v);
-            var sample_list = new G_sample_list(v, "#FF0000");
+            var sample_list = new create_g_data_object(v);
             v_plane.add_g_object(sample_list);
             send_next_chunk_request();
         }
@@ -285,14 +341,14 @@
             return cur_scale
         });
 
-        var v = convert_ticks(ticks);
+        var v = convert_data(data);
         max = v[0].y;
         min = max;
         process_point(v);
 
-        add_ticks = function(ticks)
+        add_data = function(data)
         {
-            var v = convert_ticks(ticks);
+            var v = convert_data(data);
             process_point(v);
         };
     };
