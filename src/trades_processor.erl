@@ -14,32 +14,32 @@
 -endif.
 
 %% API
--export([ticks_map_fun/2]).
+-export([trades_map_fun/2]).
 
--export_type([tick/0, ticks/0]).
+-export_type([trade/0, trades/0]).
 
--type tick() :: #{price := float(), amount := integer(), time := times:time()}.
+-type trade() :: #{price := float(), amount := integer(), time := times:time()}.
 %% @doc a single trade
 
--type ticks() :: [tick()].
+-type trades() :: [trade()].
 %% @doc a list of trades
 
--type last_tick_time() :: undefined | times:time().
+-type last_trade_time() :: undefined | times:time().
 %% @doc time of the last trade
 
--spec ticks_map_fun(file_reader:file_chunk(), last_tick_time()) -> Result
-  when Result :: {{true, tick()} | false, Leftover :: file_reader:file_chunk(), last_tick_time()}.
-%% @doc processes a binary line, extracts a tick and returns the extracted tick or leftover
-%% that can't be processed and last tick's time.
-ticks_map_fun(Chunk, Last_tick_time) ->
+-spec trades_map_fun(file_reader:file_chunk(), last_trade_time()) -> Result
+  when Result :: {{true, trade()} | false, Leftover :: file_reader:file_chunk(), last_trade_time()}.
+%% @doc processes a binary line, extracts a trade and returns the extracted trade or leftover
+%% that can't be processed and last trade's time.
+trades_map_fun(Chunk, Last_trade_time) ->
     case binary:split(Chunk, [<<";">>], [global]) of
       [_Code, _Contract, Price_str, Amount_str, Dat_time_str, _Trade_id, _Nosystem] ->
         Price = binary_to_float(Price_str),
         Amount = binary_to_integer(Amount_str),
-        Time = dat_time_str_to_milliseconds(Dat_time_str, Last_tick_time),
+        Time = dat_time_str_to_milliseconds(Dat_time_str, Last_trade_time),
         {{true, #{price => Price, amount => Amount, time => Time}}, <<>>, Time};
       _ ->
-        {false, Chunk, Last_tick_time}
+        {false, Chunk, Last_trade_time}
     end.
 
 %%%===================================================================
@@ -122,7 +122,7 @@ dat_time_str_to_milliseconds_test_() ->
     ?_assertEqual(true, is_integer(Res_4) andalso Res_4 > 0)
   ].
 
-ticks_map_fun_test_() ->
+trades_map_fun_test_() ->
   P = 100.0,
   P_bin = float_to_binary(P),
 
@@ -133,10 +133,10 @@ ticks_map_fun_test_() ->
   S_suffix = <<";1;", T_bin/bits, ";129633008;0">>,
   S1 = <<S_prefix/bits, P_bin/bits, S_suffix/bits>>,
 
-  {{true, #{price := P}}, Res_1, T} = ticks_map_fun(<<S1/bits>>, 0),
-  {false, Res_2, 0} = ticks_map_fun(S_prefix, 0),
-  {{true, #{price := P}}, Res_3, T} = ticks_map_fun(S1, 0),
-  {false, Res_4, 0} = ticks_map_fun(<<>>, 0),
+  {{true, #{price := P}}, Res_1, T} = trades_map_fun(<<S1/bits>>, 0),
+  {false, Res_2, 0} = trades_map_fun(S_prefix, 0),
+  {{true, #{price := P}}, Res_3, T} = trades_map_fun(S1, 0),
+  {false, Res_4, 0} = trades_map_fun(<<>>, 0),
 
   [
     ?_assertEqual(<<>>, Res_1),

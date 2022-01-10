@@ -9,6 +9,10 @@
 -module(sample_track).
 -author("PKQ874").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -behaviour(gen_server).
 
 -define(MEAN_SPAN, 60000).   %%in milliseconds
@@ -32,17 +36,22 @@
 
 -define(SERVER, ?MODULE).
 
--type ticks() :: trades_processor:ticks().
+-type tick() :: #{time := times:time(), price := float()}.
+-type ticks() :: [tick()].
+
+-type trades() :: trades_processor:trades().
 -type candles() :: candles_processor:candles().
+-type data() :: trades() | candles().
 
 -type catalog() :: catalog_processor:catalog().
+-type data_type() :: catalog_processor:data_type().
 
 -record(state, {
   file_data = undefined :: file_reader:file_reader_data() | undefined,
   file_directory = [] :: string(),
   catalog = undefined :: catalog() | undefined,
-  data_type = undefined :: catalog_processor:data_type() | undefined,
-  data = [] :: ticks() | candles()
+  data_type = undefined :: data_type() | undefined,
+  data = [] :: data()
 }).
 
 %%%===================================================================
@@ -60,7 +69,7 @@
 start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec get_data() -> {ok, ticks()} | {error, Reason :: term()}.
+-spec get_data() -> {ok, data()} | {error, Reason :: term()}.
 %% @doc return data that the sample track holds
 get_data() ->
   gen_server:call(?SERVER, get_data).
@@ -70,13 +79,13 @@ get_data() ->
 read_catalog(Fname) ->
   gen_server:call(?SERVER, {read_catalog, Fname}).
 
--spec open_file(Name :: string()) -> {ok, catalog_processor:data_type()} | {error, Reason :: term()}.
+-spec open_file(Name :: string()) -> {ok, data_type()} | {error, Reason :: term()}.
 %% @doc opens a file for the given security name in the configured directory
 %% and resets all the previous data.
 open_file(Fname) ->
   gen_server:call(?SERVER, {open_file, Fname}).
 
--spec read_next_chunk() -> {ok, ticks()} | eof | {error, Reason :: term()}.
+-spec read_next_chunk() -> {ok, data()} | eof | {error, Reason :: term()}.
 %% @doc reads the next chunk of data from the file
 %% appends the data to the state list, returns the read data
 %% if no more data to read returns eof and closes the file
@@ -170,7 +179,7 @@ handle_call({open_file, Fname}, _From, #state{file_data = undefined, file_direct
   Map_fun =
     case Type of
       trades ->
-        fun trades_processor:ticks_map_fun/2;
+        fun trades_processor:trades_map_fun/2;
       candles ->
         fun candles_processor:candle_map_fun/2
     end,
@@ -196,9 +205,8 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, data_type = Ty
       Processed_data =
         case Type of
           trades ->
-            decimate_ticks(Chunk);
+            decimate_trades(Chunk);
           candles ->
-            %%[#{price => P , amount => V, time => T} || #{close_price := P, volume := V, close_time := T} <- Chunk]
             Chunk
         end,
       New_state =
@@ -212,15 +220,17 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, data_type = Ty
       ok  = file_reader:close_file(File_data),
       {reply, Result, State#state{file_data = undefined}}
   end;
-handle_call({slice_ticks, From, To}, _From, #state{data = Deals} = State) ->
-  From_pred = gen_before_t_predicate(From),
-  To_pred = gen_before_t_predicate(To),
+handle_call({slice_ticks, From, To}, _From, #state{data_type = Data_type, data = Deals} = State) ->
+  From_pred = gen_before_t_predicate(From, Data_type),
+  To_pred = gen_before_t_predicate(To, Data_type),
   L_1 = lists:dropwhile(From_pred, Deals),
-  L = lists:takewhile(To_pred, L_1),
+  L_2 = lists:takewhile(To_pred, L_1),
+  L = convert_to_ticks(L_2),
   {reply, L, State};
-handle_call({slice_ticks_after, From}, _From, #state{data = Deals} = State) ->
-  From_pred = gen_before_t_predicate(From),
-  L = lists:dropwhile(From_pred, Deals),
+handle_call({slice_ticks_after, From}, _From, #state{data_type = Data_type, data = Deals} = State) ->
+  From_pred = gen_before_t_predicate(From, Data_type),
+  L_1 = lists:dropwhile(From_pred, Deals),
+  L = convert_to_ticks(L_1),
   {reply, L, State}.
 
 
@@ -289,27 +299,73 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-
--spec gen_before_t_predicate(T :: integer()) -> fun((trades_processor:tick()) -> boolean()).
+-spec gen_before_t_predicate(T :: integer(), Type :: data_type()) -> Result
+  when Result :: fun((trades_processor:trade() | trades_processor:candle()) -> boolean()).
 %% @doc generates a function that serves as a predicate the returns true if given tick's time
 %%      is less then T and false otherwise
-gen_before_t_predicate(T_limit) ->
-  fun (#{time := T}) when T < T_limit ->
-      true;
-    (_) ->
-      false
+gen_before_t_predicate(T_limit, Type) ->
+  Time_field =
+    case Type of
+      trades ->
+        time;
+      candles ->
+        close_time
+    end,
+  fun (#{Time_field := T}) when T < T_limit ->
+        true;
+      (_) ->
+        false
   end.
 
 add_tick(#{price := P, amount := A}, {#{price := P_s, amount := A_s}, N}) ->
   {#{price => P_s + P, amount => A_s + A}, N + 1}.
 
--spec decimate_ticks(Ticks :: ticks()) -> ticks().
-%% @doc decimates the tick list using a mean value in a ?MEAN_SPAN interval
-decimate_ticks([]) ->
+-spec decimate_trades(Trades :: trades()) -> trades().
+%% @doc decimates the trade list using a mean value in a ?MEAN_SPAN interval
+decimate_trades([]) ->
   [];
-decimate_ticks([#{time := T_start} | _] = Ticks) ->
-  Pred = gen_before_t_predicate(T_start + ?MEAN_SPAN),
-  {L, Rest} = lists:splitwith(Pred, Ticks),
+decimate_trades([#{time := T_start} | _] = Trades) ->
+  Pred = gen_before_t_predicate(T_start + ?MEAN_SPAN, trades),
+  {L, Rest} = lists:splitwith(Pred, Trades),
   {#{price := P_s, amount := A_s}, N} =
     lists:foldl(fun add_tick/2, {#{price => 0.0, amount => 0, time => 0}, 0}, L),
-  [#{price => P_s / N, amount => round(A_s / N), time => T_start} | decimate_ticks(Rest)].
+  [#{price => P_s / N, amount => round(A_s / N), time => T_start} | decimate_trades(Rest)].
+
+-spec convert_to_ticks(data()) -> ticks().
+%% @doc converts trades or candles into ticks
+convert_to_ticks(Data) ->
+  Foldr_fun =
+    fun(#{time := T, price := P}, L) ->
+         [#{time => T, price => P} | L];
+       (#{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p}, L) ->
+         [ #{time => O_t, price => O_p} | [#{time => C_t, price => C_p} | L]]
+    end,
+  lists:foldr(Foldr_fun, [], Data).
+
+-ifdef(TEST).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% unit tests
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+convert_to_ticks_test_() ->
+  Trades = [#{time => X, price => 100 * X, amount => 100} || X <- lists:seq(1, 10)],
+  Trade_ticks = [#{time => T, price => P} || #{time := T, price := P} <- Trades],
+  Candles = [#{open_price => 100 * X,
+               day_low => 10 * X,
+               day_high => 200 * X,
+               close_price => 150 * X,
+               volume => 500,
+               open_time => X,
+               close_time => X + 1000} || X <- lists:seq(1, 10)],
+  Candle_ticks = lists:flatten([[#{time => O_t, price => O_p}, #{time => C_t, price => C_p}] ||
+    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p} <- Candles]),
+
+  Res_1 = convert_to_ticks(Trades),
+  Res_2 = convert_to_ticks(Candles),
+
+  [
+    ?_assertEqual(Trade_ticks, Res_1),
+    ?_assertEqual(Candle_ticks, Res_2)
+  ].
+
+-endif.
