@@ -83,7 +83,7 @@ handle(Req, State=#state{operation = indicators}) ->
       V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
       case tapol_lss:get_least_squares_solution(V, Power) of
         {ok, Coefs} ->
-          #{status => ok, coefficients => Coefs};
+          #{status => ok, coefficients => Coefs, sigma => calc_sigma(Coefs, V)};
         {error, Reason} ->
           #{status => error, error => Reason}
       end
@@ -352,6 +352,18 @@ foldl_while(Fun, Acc_in, [H | T]) ->
     false ->
       Acc_out
   end.
+
+-spec calc_sigma(tapol_epol:e_polynomial(), sample_track:ticks()) -> float().
+%% @doc calculates sigma for the given set of ticks and approximation
+calc_sigma(_P, []) ->
+  0.0;
+calc_sigma(P, L) ->
+  Fun = fun({X, Y}, {Sum, N}) ->
+          Diff = Y - tapol_epol:calc_val(P, X),
+          {Sum + Diff * Diff, N + 1}
+        end,
+  {Sum, N} = lists:foldl(Fun, {0, 0}, L),
+  math:sqrt(Sum / N).
 
 %%%===================================================================
 %%% Unit tests

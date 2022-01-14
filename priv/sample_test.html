@@ -33,9 +33,12 @@
 
     <div> mean </div>
     <label for="mean_span">span (sec)</label>
-    <input type="text" id="mean_span" value="3 * 24 * 60 * 60">
+    <input type="text" id="mean_span" value="180 * 24 * 60 * 60">
     <label for="mean_power">power</label>
-    <input type="text" id="mean_power" value="2">
+    <input type="text" id="mean_power" value="1"><br>
+    <label for="mean_sigma_level_checkbox">sigma level</label>
+    <input type="checkbox" id="mean_sigma_level_checkbox">
+    <input type="text" id="mean_sigma_level" value="-2.5">
 
     <p>
 
@@ -358,6 +361,12 @@
     {
         var mean_span = eval(document.getElementById("mean_span").value) * 1000;
         var mean_power = eval(document.getElementById("mean_power").value);
+        var mean_sigma_enabled = document.getElementById("mean_sigma_level_checkbox").checked;
+        var mean_sigma_level = 0;
+        if (mean_sigma_enabled)
+        {
+            mean_sigma_level = eval(document.getElementById("mean_sigma_level").value);
+        }
 
         var short_span = eval(document.getElementById("short_span").value) * 1000;
         var short_power = eval(document.getElementById("short_power").value);
@@ -367,6 +376,7 @@
         return {
             mean_span: mean_span,
             mean_power: mean_power,
+            mean_sigma_level: mean_sigma_level,
             short_span: short_span,
             short_power: short_power,
             absolute_diff: absolute_diff
@@ -391,12 +401,20 @@
                     var d = new Date(correct_time(p.x));
                     console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
 
+                    var mean_sigma_levels = [0];
+                    var mean_colours = ["#00FF00"];
+                    if (0 != i_params.mean_sigma_level)
+                    {
+                        mean_sigma_levels[1] = i_params.mean_sigma_level;
+                        mean_colours[1] = ["#00FFFF"];
+                    }
                     var mean_data =
                     {
                         left: mean_from,
                         right: to,
                         power: i_params.mean_power,
-                        colour: "#00FF00"
+                        colours: mean_colours,
+                        sigma_levels: mean_sigma_levels
                     };
 
                     var short_data =
@@ -404,7 +422,8 @@
                         left: short_from,
                         right: to,
                         power: i_params.short_power,
-                        colour: "#0000FF"
+                        colours: ["#0000FF"],
+                        sigma_levels: [0]
                     };
                     var polynomials =
                             [
@@ -420,17 +439,24 @@
                                 switch (response[i].status)
                                 {
                                     case 'ok':
-                                        var polynomial = new G_polynomial(response[i].coefficients,
-                                                polynomials[i].colour, polynomials[i]);
-                                        var polynomial_id = v_plane.add_g_object(polynomial);
-                                        v_plane_on_click_clear_fun = function (fun, id)
+                                        var coefs = response[i].coefficients;
+                                        var s = response[i].sigma;
+                                        var levels = polynomials[i].sigma_levels;
+                                        var colours = polynomials[i].colours;
+                                        for (var j = 0; j < polynomials[i].sigma_levels.length; j++)
                                         {
-                                            return function ()
+                                            var p = adjust_polynomial(coefs, levels[j] * s);
+                                            var polynomial = new G_polynomial(p, colours[j], polynomials[i]);
+                                            var polynomial_id = v_plane.add_g_object(polynomial);
+                                            v_plane_on_click_clear_fun = function (fun, id)
                                             {
-                                                fun();
-                                                v_plane.remove_g_object(id);
-                                            };
-                                        }(v_plane_on_click_clear_fun, polynomial_id);
+                                                return function ()
+                                                {
+                                                    fun();
+                                                    v_plane.remove_g_object(id);
+                                                };
+                                            }(v_plane_on_click_clear_fun, polynomial_id);
+                                        }
                                         break;
                                 }
                             }
@@ -464,6 +490,25 @@
                 }
             }
     );
+
+    function adjust_polynomial(p, level)
+    {
+        n = p.length;
+        var result = [];
+
+        if (n > 0)
+        {
+            result = new Array(n);
+            for (var i = 0; i < n; i++)
+            {
+                result[i] = p[i];
+            }
+
+            result[n - 1] += level;
+        }
+
+        return result;
+    }
 
     var on_test_interval_clear_fun = function() {};
     var on_evaluate_interval_clear_fun = function() {};

@@ -34,6 +34,8 @@
   terminate/2,
   code_change/3]).
 
+-export_type([tick/0, ticks/0]).
+
 -define(SERVER, ?MODULE).
 
 -type tick() :: #{time := times:time(), price := float()}.
@@ -300,7 +302,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 -spec gen_before_t_predicate(T :: integer(), Type :: data_type()) -> Result
-  when Result :: fun((trades_processor:trade() | trades_processor:candle()) -> boolean()).
+  when Result :: fun((trades_processor:trade() | candles_processor:candle()) -> boolean()).
 %% @doc generates a function that serves as a predicate the returns true if given tick's time
 %%      is less then T and false otherwise
 gen_before_t_predicate(T_limit, Type) ->
