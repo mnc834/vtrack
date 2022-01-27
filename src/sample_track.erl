@@ -339,8 +339,23 @@ convert_to_ticks(Data) ->
   Foldr_fun =
     fun(#{time := T, price := P}, L) ->
          [#{time => T, price => P} | L];
-       (#{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p}, L) ->
-         [ #{time => O_t, price => O_p} | [#{time => C_t, price => C_p} | L]]
+       (#{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low}, L) ->
+         Dt = round((C_t - O_t) / 10),
+         {P1, P2} =
+         if
+            O_p > C_p ->
+              {High, Low};
+            true ->
+              {Low, High}
+         end,
+         New_ticks =
+           [
+             #{time => O_t, price => O_p},
+             #{time => O_t + Dt, price => P1},
+             #{time => C_t - Dt, price => P2},
+             #{time => C_t, price => C_p}
+           ],
+         lists:append(New_ticks, L)
     end,
   lists:foldr(Foldr_fun, [], Data).
 
@@ -352,22 +367,47 @@ convert_to_ticks(Data) ->
 convert_to_ticks_test_() ->
   Trades = [#{time => X, price => 100 * X, amount => 100} || X <- lists:seq(1, 10)],
   Trade_ticks = [#{time => T, price => P} || #{time := T, price := P} <- Trades],
-  Candles = [#{open_price => 100 * X,
+
+  Diff_time = 100,
+  Candle_time_span = 10 * Diff_time,
+  Candles_1 = [#{open_price => 100 * X,
+                 day_low => 10 * X,
+                 day_high => 200 * X,
+                 close_price => 150 * X,
+                 volume => 500,
+                 open_time => 3000 * X,
+                 close_time => 3000 * X + Candle_time_span} || X <- lists:seq(1, 10)],
+  Candle_1_ticks = lists:flatten([[
+                                   #{time => O_t, price => O_p},
+                                   #{time => O_t + Diff_time, price => Low},
+                                   #{time => C_t - Diff_time, price => High},
+                                   #{time => C_t, price => C_p}
+                                ] ||
+    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low} <- Candles_1]),
+
+  Candles_2 = [#{open_price => 150 * X,
                day_low => 10 * X,
                day_high => 200 * X,
-               close_price => 150 * X,
+               close_price => 100 * X,
                volume => 500,
-               open_time => X,
-               close_time => X + 1000} || X <- lists:seq(1, 10)],
-  Candle_ticks = lists:flatten([[#{time => O_t, price => O_p}, #{time => C_t, price => C_p}] ||
-    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p} <- Candles]),
+               open_time => 3000 * X,
+               close_time => 3000 * X + Candle_time_span} || X <- lists:seq(1, 10)],
+  Candle_2_ticks = lists:flatten([[
+                                    #{time => O_t, price => O_p},
+                                    #{time => O_t + Diff_time, price => High},
+                                    #{time => C_t - Diff_time, price => Low},
+                                    #{time => C_t, price => C_p}
+                                  ] ||
+    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low} <- Candles_2]),
 
   Res_1 = convert_to_ticks(Trades),
-  Res_2 = convert_to_ticks(Candles),
+  Res_2 = convert_to_ticks(Candles_1),
+  Res_3 = convert_to_ticks(Candles_2),
 
   [
     ?_assertEqual(Trade_ticks, Res_1),
-    ?_assertEqual(Candle_ticks, Res_2)
+    ?_assertEqual(Candle_1_ticks, Res_2),
+    ?_assertEqual(Candle_2_ticks, Res_3)
   ].
 
 -endif.

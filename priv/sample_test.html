@@ -44,14 +44,14 @@
 
     <div> short</div>
     <label for="short_span">span (sec)</label>
-    <input type="text" id="short_span" value="30 * 60">
+    <input type="text" id="short_span" value="15 * 24 * 60 * 60">
     <label for="short_power">power</label>
     <input type="text" id="short_power" value="2">
 
     <p>
 
     <label for="absolute_diff">Absolute diff</label>
-    <input type="text" id="absolute_diff" value="100">
+    <input type="text" id="absolute_diff" value="3">
 
     <p>
         <button id = "test_interval" onclick="test_interval()">TEST_INTERVAL</button>
@@ -556,16 +556,17 @@
                 {
                     case 'ok':
                         var rectangle_id = v_plane.add_g_object(new Rectangle(w, "#A0A0A0"));
-                        var short_v = convert_ticks(response.short_list);
-                        var long_v = convert_ticks(response.long_list);
-                        var short_id = v_plane.add_g_object(new G_sample_list(short_v, "#0000FF"));
-                        var long_id = v_plane.add_g_object(new G_sample_list(long_v, "#00FF00"));
+                        var long_g_ids = add_selection_circles(v_plane, response.long_list, "#00FF00", g_ids);
+                        var short_g_ids = add_selection_circles(v_plane, response.short_list, "#FF0000", g_ids);
+                        var g_ids = long_g_ids.concat(short_g_ids);
 
                         on_test_interval_clear_fun = function ()
                         {
                             v_plane.remove_g_object(rectangle_id);
-                            v_plane.remove_g_object(short_id);
-                            v_plane.remove_g_object(long_id);
+                            for (var i = 0; i < g_ids.length; i++)
+                            {
+                                v_plane.remove_g_object(g_ids[i]);
+                            }
                             on_test_interval_clear_fun = function() {}
                         };
 
@@ -601,6 +602,18 @@
         }
 
         return out
+    }
+
+    function add_selection_circles(v_plane, deals, colour)
+    {
+        var g_ids = [];
+        for (var i = 0; i < deals.length; i++)
+        {
+            g_ids[i] = v_plane.add_g_object(new G_selection_circle({x: convert_time(deals[i].time),
+                                                                    y: convert_val(deals[i].price)}, 10, colour));
+        }
+
+        return g_ids;
     }
 
     function evaluate_interval()
