@@ -79,7 +79,7 @@ handle(Req, State=#state{operation = indicators}) ->
 
   Map_fun =
     fun(#{left := From, right := To, power := Power}) ->
-      L = sample_track:slice_ticks(From, To),
+      L = trals:convert_to_ticks(sample_track:slice_data(From, To)),
       V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
       case tapol_lss:get_least_squares_solution(V, Power) of
         {ok, Coefs} ->
@@ -97,8 +97,6 @@ handle(Req, State=#state{operation = test_interval}) ->
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
   #{
-    x_shift := X_shift,
-    y_shift := Y_shift,
     left := Left,
     right := Right,
     mean_span := Mean_span,
@@ -108,63 +106,30 @@ handle(Req, State=#state{operation = test_interval}) ->
     absolute_diff := Absolute_diff
   } = Query,
 
-  Gen_left_predicate =
-    fun(T) ->
-      fun({X, _Y}) when X < T ->
-        true;
-        (_) ->
-          false
-      end
-    end,
+  Two_curves_param = #{mean_span => Mean_span,
+                       mean_power => Mean_power,
+                       short_span => Short_span,
+                       short_power => Short_power,
+                       absolute_diff => Absolute_diff},
+  {ok, Alg_state} = trals:two_curves_init(Two_curves_param, Left),
 
-  L = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- sample_track:slice_ticks(Left - Mean_span, Left)],
-  Interval = sample_track:slice_ticks(Left, Right),
+  Interval = sample_track:slice_data(Left, Right),
   Foldl_fun =
-    fun(#{price := P, time := T} = Tick, #{short_v := Short_v, long_v := Long_v, list := List} = Acc) ->
-      X = T + X_shift,
-      Y = P + Y_shift,
-      Mean_left = X - Mean_span,
-      Short_left = X - Short_span,
-      Mean_list = lists:dropwhile(Gen_left_predicate(Mean_left), List ++ [{X, Y}]),
-      Short_list = lists:dropwhile(Gen_left_predicate(Short_left), Mean_list),
-      Mean_result = tapol_lss:get_least_squares_solution(Mean_list, Mean_power),
-      Short_result = tapol_lss:get_least_squares_solution(Short_list, Short_power),
-      New_acc = Acc#{list => Mean_list},
-      case {Mean_result, Short_result} of
-        {{ok, Mean_p}, {ok, Short_p}} ->
-          Mean_val = tapol_epol:calc_val(Mean_p, X),
-          D_mean_p = tapol_epol:derivative(Mean_p),
-          D_mean_val = tapol_epol:calc_val(D_mean_p, X),
-          D_short_p = tapol_epol:derivative(Short_p),
-          D_short_val = tapol_epol:calc_val(D_short_p, X),
-          _Short_val = tapol_epol:calc_val(Short_p, X),
-          Diff = Y - Mean_val,
-          case D_mean_val > 0 of
-            true ->
-              %%possible long
-              case (Diff < -1 * Absolute_diff) andalso (D_short_val > 0) andalso (D_short_val > D_mean_val) of
-                true ->
-                  %%long
-                  New_acc#{long_v => Long_v ++ [Tick]};
-                false ->
-                  New_acc
-              end;
-            false ->
-              %%possible short
-              case (Diff > Absolute_diff) andalso (D_short_val < 0) andalso (D_short_val < D_mean_val) of
-                true ->
-                  %%short
-                  New_acc#{short_v => Short_v ++ [Tick]};
-                false ->
-                  New_acc
-              end
-          end;
-        _ ->
+    fun(Item, #{short_v := Short_v, long_v := Long_v, state := S} = Acc) ->
+      {ok, Result, New_state} = trals:two_curves_process(Item, S),
+      New_acc = Acc#{state => New_state},
+      case Result of
+        {long, Tick} ->
+          New_acc#{long_v => Long_v ++ [Tick]};
+        {short, Tick} ->
+          New_acc#{short_v => Short_v ++ [Tick]};
+        none ->
           New_acc
       end
     end,
+
   #{short_v := Short_v, long_v := Long_v} =
-    lists:foldl(Foldl_fun, #{short_v => [], long_v => [], list => L}, Interval),
+    lists:foldl(Foldl_fun, #{short_v => [], long_v => [], state => Alg_state}, Interval),
 
   Resp = #{status => ok, short_list => Short_v, long_list => Long_v},
   Resp_body = jsx:encode(Resp),
@@ -262,7 +227,7 @@ handle(Req, State=#state{operation = evaluate_interval}) ->
 
 
   L = [#{price => P + Y_shift, time => T + X_shift} ||
-    #{price := P, time := T} <- sample_track:slice_ticks_after(Left)],
+    #{price := P, time := T} <- sample_track:slice_data_after(Left)],
 
   Init_state = #{
     l_p_list => [],
@@ -340,7 +305,7 @@ terminate(_Reason, _Req, _State) ->
   Acc_out :: term(),
   List :: [T],
   T :: term().
-%% @doc implements foldl operation on the list while Fun terurns {true, _} or end of list is reached,
+%% @doc implements foldl operation on the list while Fun returns {true, _} or end of list is reached,
 %%      if Fun returns {false, Acc_out} -> Acc_out is returned and processing is stopped
 foldl_while(_Fun, Acc_in, []) ->
   Acc_in;
@@ -353,7 +318,7 @@ foldl_while(Fun, Acc_in, [H | T]) ->
       Acc_out
   end.
 
--spec calc_sigma(tapol_epol:e_polynomial(), sample_track:ticks()) -> float().
+-spec calc_sigma(tapol_epol:e_polynomial(), trals:ticks()) -> float().
 %% @doc calculates sigma for the given set of ticks and approximation
 calc_sigma(_P, []) ->
   0.0;

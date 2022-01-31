@@ -9,10 +9,6 @@
 -module(sample_track).
 -author("PKQ874").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -behaviour(gen_server).
 
 -define(MEAN_SPAN, 60000).   %%in milliseconds
@@ -23,8 +19,8 @@
   get_data/0,
   open_file/1,
   read_next_chunk/0,
-  slice_ticks/2,
-  slice_ticks_after/1]).
+  slice_data/2,
+  slice_data_after/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -34,12 +30,7 @@
   terminate/2,
   code_change/3]).
 
--export_type([tick/0, ticks/0]).
-
 -define(SERVER, ?MODULE).
-
--type tick() :: #{time := times:time(), price := float()}.
--type ticks() :: [tick()].
 
 -type trades() :: trades_processor:trades().
 -type candles() :: candles_processor:candles().
@@ -95,15 +86,15 @@ open_file(Fname) ->
 read_next_chunk() ->
   gen_server:call(?SERVER, read_next_chunk).
 
--spec slice_ticks(From :: integer(), To :: integer()) -> ticks().
+-spec slice_data(From :: integer(), To :: integer()) -> data().
 %% @doc extracts ticks which have time within [From, To]
-slice_ticks(From, To) ->
-  gen_server:call(?SERVER, {slice_ticks, From, To}).
+slice_data(From, To) ->
+  gen_server:call(?SERVER, {slice_data, From, To}).
 
--spec slice_ticks_after(From :: integer()) -> ticks().
+-spec slice_data_after(From :: integer()) -> data().
 %% @doc extracts ticks which have time within more than FRrom
-slice_ticks_after(From) ->
-  gen_server:call(?SERVER, {slice_ticks_after, From}).
+slice_data_after(From) ->
+  gen_server:call(?SERVER, {slice_data_after, From}).
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -222,17 +213,15 @@ handle_call(read_next_chunk, _From, #state{file_data = File_data, data_type = Ty
       ok  = file_reader:close_file(File_data),
       {reply, Result, State#state{file_data = undefined}}
   end;
-handle_call({slice_ticks, From, To}, _From, #state{data_type = Data_type, data = Deals} = State) ->
+handle_call({slice_data, From, To}, _From, #state{data_type = Data_type, data = Deals} = State) ->
   From_pred = gen_before_t_predicate(From, Data_type),
   To_pred = gen_before_t_predicate(To, Data_type),
   L_1 = lists:dropwhile(From_pred, Deals),
-  L_2 = lists:takewhile(To_pred, L_1),
-  L = convert_to_ticks(L_2),
+  L = lists:takewhile(To_pred, L_1),
   {reply, L, State};
-handle_call({slice_ticks_after, From}, _From, #state{data_type = Data_type, data = Deals} = State) ->
+handle_call({slice_data_after, From}, _From, #state{data_type = Data_type, data = Deals} = State) ->
   From_pred = gen_before_t_predicate(From, Data_type),
-  L_1 = lists:dropwhile(From_pred, Deals),
-  L = convert_to_ticks(L_1),
+  L = lists:dropwhile(From_pred, Deals),
   {reply, L, State}.
 
 
@@ -332,82 +321,3 @@ decimate_trades([#{time := T_start} | _] = Trades) ->
   {#{price := P_s, amount := A_s}, N} =
     lists:foldl(fun add_tick/2, {#{price => 0.0, amount => 0, time => 0}, 0}, L),
   [#{price => P_s / N, amount => round(A_s / N), time => T_start} | decimate_trades(Rest)].
-
--spec convert_to_ticks(data()) -> ticks().
-%% @doc converts trades or candles into ticks
-convert_to_ticks(Data) ->
-  Foldr_fun =
-    fun(#{time := T, price := P}, L) ->
-         [#{time => T, price => P} | L];
-       (#{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low}, L) ->
-         Dt = round((C_t - O_t) / 10),
-         {P1, P2} =
-         if
-            O_p > C_p ->
-              {High, Low};
-            true ->
-              {Low, High}
-         end,
-         New_ticks =
-           [
-             #{time => O_t, price => O_p},
-             #{time => O_t + Dt, price => P1},
-             #{time => C_t - Dt, price => P2},
-             #{time => C_t, price => C_p}
-           ],
-         lists:append(New_ticks, L)
-    end,
-  lists:foldr(Foldr_fun, [], Data).
-
--ifdef(TEST).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%% unit tests
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-convert_to_ticks_test_() ->
-  Trades = [#{time => X, price => 100 * X, amount => 100} || X <- lists:seq(1, 10)],
-  Trade_ticks = [#{time => T, price => P} || #{time := T, price := P} <- Trades],
-
-  Diff_time = 100,
-  Candle_time_span = 10 * Diff_time,
-  Candles_1 = [#{open_price => 100 * X,
-                 day_low => 10 * X,
-                 day_high => 200 * X,
-                 close_price => 150 * X,
-                 volume => 500,
-                 open_time => 3000 * X,
-                 close_time => 3000 * X + Candle_time_span} || X <- lists:seq(1, 10)],
-  Candle_1_ticks = lists:flatten([[
-                                   #{time => O_t, price => O_p},
-                                   #{time => O_t + Diff_time, price => Low},
-                                   #{time => C_t - Diff_time, price => High},
-                                   #{time => C_t, price => C_p}
-                                ] ||
-    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low} <- Candles_1]),
-
-  Candles_2 = [#{open_price => 150 * X,
-               day_low => 10 * X,
-               day_high => 200 * X,
-               close_price => 100 * X,
-               volume => 500,
-               open_time => 3000 * X,
-               close_time => 3000 * X + Candle_time_span} || X <- lists:seq(1, 10)],
-  Candle_2_ticks = lists:flatten([[
-                                    #{time => O_t, price => O_p},
-                                    #{time => O_t + Diff_time, price => High},
-                                    #{time => C_t - Diff_time, price => Low},
-                                    #{time => C_t, price => C_p}
-                                  ] ||
-    #{open_time := O_t, open_price := O_p, close_time := C_t, close_price := C_p, day_high := High, day_low := Low} <- Candles_2]),
-
-  Res_1 = convert_to_ticks(Trades),
-  Res_2 = convert_to_ticks(Candles_1),
-  Res_3 = convert_to_ticks(Candles_2),
-
-  [
-    ?_assertEqual(Trade_ticks, Res_1),
-    ?_assertEqual(Candle_1_ticks, Res_2),
-    ?_assertEqual(Candle_2_ticks, Res_3)
-  ].
-
--endif.
