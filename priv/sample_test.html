@@ -31,22 +31,34 @@
 
     <p>
 
-    <div> mean </div>
-    <label for="mean_span">span (sec)</label>
-    <input type="text" id="mean_span" value="180 * 24 * 60 * 60">
-    <label for="mean_power">power</label>
-    <input type="text" id="mean_power" value="1"><br>
-    <label for="mean_sigma_level_checkbox">sigma level</label>
-    <input type="checkbox" id="mean_sigma_level_checkbox">
-    <input type="text" id="mean_sigma_level" value="-2.5">
+    <div>
+        <div> mean </div>
+        <label for="mean_span">span (sec)</label>
+        <input type="text" id="mean_span" value="180 * 24 * 60 * 60">
+        <label for="mean_power">power</label>
+        <input type="text" id="mean_power" value="1"><br>
+    </div>
 
     <p>
 
-    <div> short</div>
-    <label for="short_span">span (sec)</label>
-    <input type="text" id="short_span" value="15 * 24 * 60 * 60">
-    <label for="short_power">power</label>
-    <input type="text" id="short_power" value="2">
+    <div>
+        <label for="alg_selector">Select algorithm:</label>
+        <select id="alg_selector" onchange="select_algorithm()">
+        </select>
+    </div>
+
+    <p>
+    <div id="sigma_div">
+        <label for="sigma_level">sigma level</label>
+        <input type="text" id="sigma_level" value="-2.5">
+    </div>
+    <div id="short_span_div">
+        <div> short </div>
+        <label for="short_span">span (sec)</label>
+        <input type="text" id="short_span" value="15 * 24 * 60 * 60">
+        <label for="short_power">power</label>
+        <input type="text" id="short_power" value="2">
+    </div>
 
     <p>
 
@@ -79,12 +91,71 @@
 <script>
     var url = "sample";
 
+    var algorithm_list;
+    var current_algorithm;
+
     var canvas = document.getElementById("Canvas");
     var security_selector = document.getElementById("security_selector");
+    var algorithm_selector = document.getElementById("alg_selector");
+    var sigma_div = document.getElementById("sigma_div");
+    var short_span_div = document.getElementById("short_span_div");
     var test_interval_button = document.getElementById("test_interval");
     var evaluate_interval_button = document.getElementById("evaluate_interval");
     var direction_elements = document.getElementById("direction").elements;
     var v_plane = new V_plane(canvas);
+
+    function init_algorithm_list()
+    {
+        algorithm_list =
+        [
+            {
+                id: 0,
+                name: "Two curves",
+                div: short_span_div,
+                indicators: two_curves_indicators_data
+            },
+            {
+                id: 1,
+                name: "Sigma",
+                div: sigma_div,
+                indicators: sigma_indicators_data
+            }
+        ];
+
+        var selected_id = -1;
+        algorithm_list.forEach((alg, index) =>
+            {
+                var new_option = document.createElement('option');
+                new_option.value = alg.id;
+                new_option.text = alg.name;
+                if (0 == index)
+                {
+                    selected_id = alg.id;
+                }
+                algorithm_selector.appendChild(new_option);
+            }
+        );
+        algorithm_selector.value = selected_id;
+        select_algorithm();
+    }
+
+    function select_algorithm()
+    {
+        var selected_id = algorithm_selector.value;
+        algorithm_list.forEach(alg =>
+            {
+                if (selected_id == alg.id)
+                {
+                    current_algorithm = alg;
+                    alg.div.style.display = 'inline';
+                }
+                else
+                {
+                    alg.div.style.display = 'none';
+                }
+            }
+        );
+    }
 
     var xmlhttp = new XMLHttpRequest();
 
@@ -361,12 +432,6 @@
     {
         var mean_span = eval(document.getElementById("mean_span").value) * 1000;
         var mean_power = eval(document.getElementById("mean_power").value);
-        var mean_sigma_enabled = document.getElementById("mean_sigma_level_checkbox").checked;
-        var mean_sigma_level = 0;
-        if (mean_sigma_enabled)
-        {
-            mean_sigma_level = eval(document.getElementById("mean_sigma_level").value);
-        }
 
         var short_span = eval(document.getElementById("short_span").value) * 1000;
         var short_power = eval(document.getElementById("short_power").value);
@@ -376,7 +441,6 @@
         return {
             mean_span: mean_span,
             mean_power: mean_power,
-            mean_sigma_level: mean_sigma_level,
             short_span: short_span,
             short_power: short_power,
             absolute_diff: absolute_diff
@@ -392,44 +456,11 @@
                 {
                     v_plane_on_click_clear_fun();
 
-                    var i_params = get_indicators_params();
-
-                    var mean_from = p.x - i_params.mean_span;
-                    var short_from = p.x - i_params.short_span;
-                    var to = p.x;
-
                     var d = new Date(correct_time(p.x));
                     console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
 
-                    var mean_sigma_levels = [0];
-                    var mean_colours = ["#00FF00"];
-                    if (0 != i_params.mean_sigma_level)
-                    {
-                        mean_sigma_levels[1] = i_params.mean_sigma_level;
-                        mean_colours[1] = ["#00FFFF"];
-                    }
-                    var mean_data =
-                    {
-                        left: mean_from,
-                        right: to,
-                        power: i_params.mean_power,
-                        colours: mean_colours,
-                        sigma_levels: mean_sigma_levels
-                    };
+                    var polynomials = current_algorithm.indicators(p);
 
-                    var short_data =
-                    {
-                        left: short_from,
-                        right: to,
-                        power: i_params.short_power,
-                        colours: ["#0000FF"],
-                        sigma_levels: [0]
-                    };
-                    var polynomials =
-                            [
-                                mean_data,
-                                short_data
-                            ];
                     var xmlhttp = new XMLHttpRequest();
                     xmlhttp.onreadystatechange = function () {
                         if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
@@ -771,7 +802,57 @@
         xmlhttp.send();
     }
 
+    function two_curves_indicators_data(p)
+    {
+        var i_params = get_indicators_params();
+
+        var mean_from = p.x - i_params.mean_span;
+        var short_from = p.x - i_params.short_span;
+        var to = p.x;
+
+        var mean_data =
+        {
+            left: mean_from,
+            right: to,
+            power: i_params.mean_power,
+            colours: ["#00FF00"],
+            sigma_levels: [0]
+        };
+
+        var short_data =
+        {
+            left: short_from,
+            right: to,
+            power: i_params.short_power,
+            colours: ["#0000FF"],
+            sigma_levels: [0]
+        };
+
+        return [mean_data, short_data];
+    }
+
+    function sigma_indicators_data(p)
+    {
+        var i_params = get_indicators_params();
+
+        var mean_from = p.x - i_params.mean_span;
+        var to = p.x;
+
+        sigma_level = eval(document.getElementById("sigma_level").value);
+
+        return [
+                    {
+                        left: mean_from,
+                        right: to,
+                        power: i_params.mean_power,
+                        colours: ["#00FF00", "#00FFFF"],
+                        sigma_levels: [0, sigma_level]
+                    }
+                ];
+    }
+
     send_read_catalog_request();
+    init_algorithm_list();
 
 </script>
 
