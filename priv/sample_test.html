@@ -112,12 +112,14 @@
                 id: 0,
                 name: "Two curves",
                 div: short_span_div,
+                request: "two_curves",
                 indicators: two_curves_indicators_data
             },
             {
                 id: 1,
                 name: "Sigma",
                 div: sigma_div,
+                request: "sigma",
                 indicators: sigma_indicators_data
             }
         ];
@@ -155,6 +157,13 @@
                 }
             }
         );
+    }
+
+    function format_params(params)
+    {
+        return "?" + Object.keys(params).map(function(key){
+          return key + "=" + encodeURIComponent(params[key])
+        }).join("&");
     }
 
     var xmlhttp = new XMLHttpRequest();
@@ -436,6 +445,8 @@
         var short_span = eval(document.getElementById("short_span").value) * 1000;
         var short_power = eval(document.getElementById("short_power").value);
 
+        var sigma_level = eval(document.getElementById("sigma_level").value);
+
         var absolute_diff = eval(document.getElementById("absolute_diff").value);
 
         return {
@@ -443,6 +454,7 @@
             mean_power: mean_power,
             short_span: short_span,
             short_power: short_power,
+            sigma_level: sigma_level,
             absolute_diff: absolute_diff
         }
     }
@@ -459,7 +471,7 @@
                     var d = new Date(correct_time(p.x));
                     console.log("----" + d.toUTCString() + ": " + correct_val(p.y));
 
-                    var polynomials = current_algorithm.indicators(p);
+                    var args = current_algorithm.indicators(p);
 
                     var xmlhttp = new XMLHttpRequest();
                     xmlhttp.onreadystatechange = function () {
@@ -467,27 +479,21 @@
                             var response = JSON.parse(xmlhttp.responseText);
                             for (var i = 0; i < response.length; i++)
                             {
-                                switch (response[i].status)
+                                switch (response[i].type)
                                 {
-                                    case 'ok':
+                                    case 'polynomial':
                                         var coefs = response[i].coefficients;
-                                        var s = response[i].sigma;
-                                        var levels = polynomials[i].sigma_levels;
-                                        var colours = polynomials[i].colours;
-                                        for (var j = 0; j < polynomials[i].sigma_levels.length; j++)
+                                        var colour = response[i].colour;
+                                        var polynomial = new G_polynomial(coefs, colour, response[i]);
+                                        var polynomial_id = v_plane.add_g_object(polynomial);
+                                        v_plane_on_click_clear_fun = function (fun, id)
                                         {
-                                            var p = adjust_polynomial(coefs, levels[j] * s);
-                                            var polynomial = new G_polynomial(p, colours[j], polynomials[i]);
-                                            var polynomial_id = v_plane.add_g_object(polynomial);
-                                            v_plane_on_click_clear_fun = function (fun, id)
+                                            return function ()
                                             {
-                                                return function ()
-                                                {
-                                                    fun();
-                                                    v_plane.remove_g_object(id);
-                                                };
-                                            }(v_plane_on_click_clear_fun, polynomial_id);
-                                        }
+                                                fun();
+                                                v_plane.remove_g_object(id);
+                                            };
+                                        }(v_plane_on_click_clear_fun, polynomial_id);
                                         break;
                                 }
                             }
@@ -501,22 +507,18 @@
                             }(v_plane_on_click_clear_fun);
                         }
                     };
-                    var polynomial_params = new Array(polynomials.length);
-                    for (var i = 0; i < polynomials.length; i++) {
-                        polynomial_params[i] = function (data) {
-                            var left = correct_time(data.left);
-                            var right = correct_time(data.right);
-                            var power = data.power;
-                            return {left: left, right: right, power: power};
-                        }(polynomials[i]);
-                    }
                     var query =
                     {
                         x_shift: -1 * correct_time(0),
                         y_shift: -1 * correct_val(0),
-                        polynomials: polynomial_params
+                        args: args
                     };
-                    xmlhttp.open("GET", url + "/indicators" + '?' + 'params=' + JSON.stringify(query), true);
+                    var request_params =
+                    {
+                        algorithm: current_algorithm.request,
+                        params: JSON.stringify(query)
+                    }
+                    xmlhttp.open("GET", url + "/indicators" + format_params(request_params));
                     xmlhttp.send();
                 }
             }
@@ -806,49 +808,25 @@
     {
         var i_params = get_indicators_params();
 
-        var mean_from = p.x - i_params.mean_span;
-        var short_from = p.x - i_params.short_span;
-        var to = p.x;
-
-        var mean_data =
-        {
-            left: mean_from,
-            right: to,
-            power: i_params.mean_power,
-            colours: ["#00FF00"],
-            sigma_levels: [0]
-        };
-
-        var short_data =
-        {
-            left: short_from,
-            right: to,
-            power: i_params.short_power,
-            colours: ["#0000FF"],
-            sigma_levels: [0]
-        };
-
-        return [mean_data, short_data];
+        return {
+                    time: correct_time(p.x),
+                    mean_span: i_params.mean_span,
+                    mean_power: i_params.mean_power,
+                    short_span: i_params.short_span,
+                    short_power: i_params.short_power
+                };
     }
 
     function sigma_indicators_data(p)
     {
         var i_params = get_indicators_params();
 
-        var mean_from = p.x - i_params.mean_span;
-        var to = p.x;
-
-        sigma_level = eval(document.getElementById("sigma_level").value);
-
-        return [
-                    {
-                        left: mean_from,
-                        right: to,
-                        power: i_params.mean_power,
-                        colours: ["#00FF00", "#00FFFF"],
-                        sigma_levels: [0, sigma_level]
-                    }
-                ];
+        return {
+                    time: correct_time(p.x),
+                    mean_span: i_params.mean_span,
+                    mean_power: i_params.mean_power,
+                    sigma_level: i_params.sigma_level
+                };
     }
 
     send_read_catalog_request();

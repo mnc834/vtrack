@@ -12,8 +12,11 @@
 -export([handle/2]).
 -export([terminate/3]).
 
+-type algorithm() :: two_curves | sigma.
+
 -record(state, {
-  operation :: read_catalog | open_file | next_chunk | indicators | test_interval | evaluate_interval
+  operation :: read_catalog | open_file | next_chunk | indicators | test_interval | evaluate_interval,
+  algorithm = undefined :: algorithm() | undefined
 }).
 
 init(_, Req, [read_catalog]) ->
@@ -23,7 +26,9 @@ init(_, Req, [open_file]) ->
 init(_, Req, [next_chunk]) ->
   {ok, Req, #state{operation = next_chunk}};
 init(_Type, Req, [indicators]) ->
-  {ok, Req, #state{operation = indicators}};
+  {Algorithm_bin, _Req_1} = cowboy_req:qs_val(<<"algorithm">>, Req),
+  Algorithm = binary_to_existing_atom(Algorithm_bin, latin1),
+  {ok, Req, #state{operation = indicators, algorithm = Algorithm}};
 init(_Type, Req, [test_interval]) ->
   {ok, Req, #state{operation = test_interval}};
 init(_Type, Req, [evaluate_interval]) ->
@@ -72,23 +77,57 @@ handle(Req, State=#state{operation = next_chunk}) ->
 
   {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req),
   {ok, Req_resp, State};
-handle(Req, State=#state{operation = indicators}) ->
+handle(Req, State=#state{operation = indicators, algorithm = two_curves}) ->
   {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
   Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
-  #{x_shift := X_shift, y_shift := Y_shift, polynomials := Polynomials} = Query,
+  #{x_shift := X_shift, y_shift := Y_shift, args := Args} = Query,
 
+  #{time := T, mean_span := Mean_span, mean_power := Mean_power, short_span := Short_span, short_power := Short_power} = Args,
+  Polinomials =
+    [
+      %% mean line
+      #{left => T - Mean_span, right => T, power => Mean_power, colour => 'green'},
+
+      %% short line
+      #{left => T - Short_span, right => T, power => Short_power, colour => 'blue'}
+    ],
   Map_fun =
-    fun(#{left := From, right := To, power := Power}) ->
+    fun(#{left := From, right := To, power := Power, colour := Colour}) ->
       L = trals:convert_to_ticks(sample_track:slice_data(From, To)),
-      V = [{T + X_shift, P + Y_shift} || #{price := P, time := T} <- L],
+      V = [{Time + X_shift, Price + Y_shift} || #{price := Price, time := Time} <- L],
       case tapol_lss:get_least_squares_solution(V, Power) of
         {ok, Coefs} ->
-          #{status => ok, coefficients => Coefs, sigma => calc_sigma(Coefs, V)};
+          #{type => polynomial, coefficients => Coefs, left => From + X_shift, right => To + X_shift, colour => Colour};
         {error, Reason} ->
-          #{status => error, error => Reason}
+          #{type => error, reason => Reason}
       end
     end,
-  Resp = lists:map(Map_fun, Polynomials),
+  Resp = lists:map(Map_fun, Polinomials),
+  Resp_body = jsx:encode(Resp),
+
+  {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
+  {ok, Req_resp, State};
+handle(Req, State=#state{operation = indicators, algorithm = sigma}) ->
+  {Query_bin, Req_1} = cowboy_req:qs_val(<<"params">>, Req),
+  Query = jsx:decode(Query_bin, [{labels, atom}, return_maps]),
+  #{x_shift := X_shift, y_shift := Y_shift, args := Args} = Query,
+
+  #{time := T, mean_span := Mean_span, mean_power := Mean_power, sigma_level := Sigma_level} = Args,
+  From = T - Mean_span,
+  L = trals:convert_to_ticks(sample_track:slice_data(T - Mean_span, T)),
+  V = [{Time + X_shift, Price + Y_shift} || #{price := Price, time := Time} <- L],
+  Resp =
+    case tapol_lss:get_least_squares_solution(V, Mean_power) of
+      {ok, Coefs} ->
+        Adjust_level = Sigma_level * calc_sigma(Coefs, V),
+        F = fun FF([X]) -> [X +  Adjust_level]; FF([Head | Tail]) -> [Head | FF(Tail)] end,
+        Mean_line =
+          #{type => polynomial, coefficients => Coefs, left => From + X_shift, right => T + X_shift, colour => 'green'},
+        Sigma_line = Mean_line#{coefficients => F(Coefs), colour => 'aqua'},
+        [Mean_line, Sigma_line];
+      {error, Reason} ->
+        #{type => error, reason => Reason}
+    end,
   Resp_body = jsx:encode(Resp),
 
   {ok, Req_resp} = cowboy_req:reply(200, ?RESPONSE_HDRS, Resp_body, Req_1),
